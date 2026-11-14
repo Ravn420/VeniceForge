@@ -19,12 +19,22 @@
   /* ============================================================
      CHAT
      ============================================================ */
-  function chatHtml(ctx) {
-    return window.VeniceWebApp.render({ id: "chat", url: "https://venice.ai/chat/v2", title: "Venice Chat", subtitle: "Chat and select models directly in Venice.ai’s web app." });
+  function chatHtml() {
+    return window.StudioPanel.render({
+      id: "chat",
+      kind: "text",
+      result: "text",
+      title: "Chat",
+      placeholder: "Ask for a plan, a rewrite, or a next step",
+      promptLabel: "Message",
+      button: "Send",
+      ready: "Text models only. Replies stay in Venice Forge.",
+      foot: "Text models. Songs stay on Music."
+    });
   }
 
-  function wireChat(ctx) {
-    window.VeniceWebApp.wire(ctx, { id: "chat", url: "https://venice.ai/chat/v2" });
+  function wireChat() {
+    window.StudioPanel.wire({ id: "chat", kind: "text", result: "text", ready: "Text models only. Replies stay in Venice Forge.", button: "Send" });
   }
 
   /* ============================================================

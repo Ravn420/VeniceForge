@@ -1,7 +1,7 @@
 /**
  * Venice.ai WEB APP bridge — there is no HTTP API usage in this product.
  * All model access happens through the official venice.ai web surfaces
- * (chat / image / video / audio studios) rendered in the isolated webview
+ * (chat / image / video / audio / music studios) rendered in the isolated webview
  * (see renderer/venice-webapp.js). This bridge:
  *   1. serves the curated web-app model catalog for pickers,
  *   2. deep-links the user into the right venice.ai surface with their task, and
@@ -13,7 +13,7 @@ import { completionProcessor } from "./completion-processor.js";
 export interface VeniceModel {
   id: string;
   name: string;
-  surface: "chat" | "image" | "video" | "audio";
+  surface: "chat" | "image" | "video" | "audio" | "music";
   blurb: string;
 }
 
@@ -23,14 +23,16 @@ export const VENICE_WEBAPP_MODELS: VeniceModel[] = [
   { id: "venice-reasoner", name: "Venice Reasoner", surface: "chat", blurb: "Chain-of-thought reasoning model." },
   { id: "venice-image", name: "Venice Image Studio", surface: "image", blurb: "Image generation in the web app studio." },
   { id: "venice-video", name: "Venice Video Studio", surface: "video", blurb: "Video generation in the web app studio." },
-  { id: "venice-audio", name: "Venice Audio Studio", surface: "audio", blurb: "Music and sound in the web app studio." }
+  { id: "venice-audio", name: "Venice Audio Studio", surface: "audio", blurb: "Voice and sound in the web app studio." },
+  { id: "venice-music", name: "Venice Music Studio", surface: "music", blurb: "Song generation with Venice.ai’s web-app music models. Not the API." }
 ];
 
 const SURFACE_URLS: Record<VeniceModel["surface"], string> = {
   chat: "https://venice.ai/chat/v2",
   image: "https://venice.ai/studio/image",
   video: "https://venice.ai/studio/video",
-  audio: "https://venice.ai/studio/audio"
+  audio: "https://venice.ai/studio/audio",
+  music: "https://venice.ai/studio/audio"
 };
 
 /** Models that render in the AI Dev Studio pickers: everything except the

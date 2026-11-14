@@ -7,10 +7,10 @@
 const $ = (sel) => document.querySelector(sel);
 const app = $("#app");
 
-const NAV_TABS = ["Library", "Chat", "Image Gen", "Video Studio", "Movie Editor", "Audio Score", "AI Dev Studio"];
+const NAV_TABS = ["Library", "Chat", "Image Gen", "Video Studio", "Movie Editor", "Music", "Audio Score", "AI Dev Studio", "Integrations"];
 
 const state = {
-  tab: "AI Dev Studio",
+  tab: new URLSearchParams(location.search).get("tab") || (window.forge ? "AI Dev Studio" : "Music"),
   projectDir: null,
   tree: [],
   openFiles: new Map(),
@@ -87,22 +87,19 @@ function renderNav() {
         ${NAV_TABS.map((t) => `<button class="nav-tab ${t === state.tab ? "active" : ""}" data-tab="${esc(t)}">${esc(t)}</button>`).join("")}
       </nav>
       <div class="topnav-spacer"></div>
-      <button class="nav-control web-session-indicator" id="open-venice-webapp" title="Open Venice.ai chat">
-        <span class="dot"></span><span class="label">Venice.ai web app</span>
-      </button>
-      <div class="topnav-spacer"></div>
       <div class="nav-control settings-menu" id="settings-menu">
         <button class="nav-control" id="open-settings" title="Settings">
           <span class="dot"></span><span class="label">Settings</span>
         </button>
         <div class="settings-panel" id="settings-panel">
           <div class="setting-item">
-            <span class="setting-label">Account</span>
-            <span class="setting-value" id="account-status">Not authenticated</span>
+            <span class="setting-label">Generations</span>
+            <span class="setting-value">In this studio</span>
           </div>
-          <button class="nav-control" id="open-login">
-            <span class="label">Login to Venice.ai</span>
-          </button>
+          <div class="setting-item">
+            <span class="setting-label">Music models</span>
+            <span class="setting-value">Music page</span>
+          </div>
         </div>
       </div>
     </div>
@@ -111,6 +108,8 @@ function renderNav() {
   `;
 }
 
+let settingsCloserBound = false;
+
 function wireNav() {
   $("#navtabs").addEventListener("click", (e) => {
     const b = e.target.closest("[data-tab]");
@@ -118,21 +117,21 @@ function wireNav() {
     state.tab = b.dataset.tab;
     render();
   });
-  $("#open-venice-webapp").onclick = () => window.forge.browser.open("https://venice.ai/chat/v2").catch((error) => notify("Could not open Venice.ai chat: " + error.message));
   $("#open-settings").onclick = (e) => {
     e.stopPropagation();
     const panel = $("#settings-panel");
-    if (panel) panel.style.display = panel.style.display === "none" ? "block" : "none";
+    if (!panel) return;
+    panel.style.display = panel.style.display === "block" ? "none" : "block";
   };
-  document.addEventListener("click", (e) => {
-    const panel = $("#settings-panel");
-    if (panel && !panel.contains(e.target) && e.target.id !== "open-settings") {
+  if (!settingsCloserBound) {
+    settingsCloserBound = true;
+    document.addEventListener("click", (e) => {
+      const panel = $("#settings-panel");
+      if (!panel || panel.style.display !== "block") return;
+      if (panel.contains(e.target) || e.target.closest?.("#open-settings")) return;
       panel.style.display = "none";
-    }
-  });
-  $("#open-login").onclick = () => {
-    window.forge.browser.open("https://venice.ai/login").catch((error) => notify("Could not open Venice.ai login: " + error.message));
-  };
+    });
+  }
 }
 
 function render() {

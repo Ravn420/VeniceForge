@@ -48,6 +48,7 @@ let filterQ = "";
 let treeFocusPath = null;
 let activeTpl = null;
 let subModel = null;             // subagent model pick (defaults to state.model)
+const modelQuery = { "model-select": "", "sub-model-select": "" };
 const collapsed = new Set();     // collapsed dir paths in the tree
 const lastSaved = new Map();     // path -> saved content (dirty tracking)
 const termHistory = [];
@@ -298,22 +299,26 @@ function closeTab(path) {
 /* ============================================================
    INSPECTOR — Agent / Subagents / Git / API
    ============================================================ */
-function modelOptionsHTML(S, selected) {
-  const ids = [];
-  for (const m of ["venice-uncensored", "venice-coder", "venice-reasoner"]) ids.push(m);
-  // Chat-relevant web-app models only — image/video studios are separate surfaces.
-  for (const m of S.models || []) {
-    if (m.surface === "image" || m.surface === "video") continue;
-    const id = m.id || m.name;
-    if (id && !ids.includes(id)) ids.push(id);
-  }
-  const sel = selected && ids.includes(selected) ? selected : ids[0];
-  return ids.map((id) => `<option value="${E(id)}"${id === sel ? " selected" : ""}>${E(id)}</option>`).join("");
+function modelOptionsHTML(S, selected, dev) {
+  const modelsAll = (S.models || []).filter((m) => m && m.surface !== "image" && m.surface !== "video" && m.surface !== "music");
+  if (!modelsAll.length) return `<option value="">Loading text models…</option>`;
+  const q = (modelQuery[dev] || "").trim().toLowerCase();
+  const models = q
+    ? modelsAll.filter((m) => m.id === selected || (m.name || m.id).toLowerCase().includes(q) || String(m.id).toLowerCase().includes(q))
+    : modelsAll;
+  const list = models.length ? models : modelsAll;
+  const sel = list.some((m) => m.id === selected) ? selected : list[0].id;
+  return list.map((m) => `<option value="${E(m.id)}"${m.id === sel ? " selected" : ""}>${E(m.name || m.id)}</option>`).join("");
 }
 
 function selectBoxHTML(devName, selected, label) {
   return `<div class="select-box"><span data-dev="${devName}-label" style="pointer-events:none">${E(selected || "model")}</span>` +
-    `<select data-dev="${devName}" title="${E(label)}">${modelOptionsHTML(C?.state || {}, selected)}</select></div>`;
+    `<select data-dev="${devName}" title="${E(label)}">${modelOptionsHTML(C?.state || {}, selected, devName)}</select></div>`;
+}
+
+function modelFilterHTML(devName) {
+  const n = ((C?.state?.models) || []).filter((m) => m && m.surface !== "image" && m.surface !== "video" && m.surface !== "music").length;
+  return `<input class="model-filter" data-dev="model-filter" data-for="${devName}" type="search" placeholder="Filter models" value="${E(modelQuery[devName] || "")}"${n < 12 ? " hidden" : ""} />`;
 }
 
 function chatLogHTML(S) {
@@ -380,15 +385,14 @@ function apiPanelHTML(S) {
   const running = S.subagents.filter((a) => a.status === "running").length;
   const kv = (k, v) => `<div class="kv"><span class="k">${E(k)}</span><span class="v">${E(v)}</span></div>`;
   return `<div class="field-label">Session</div>` +
-    kv("Model access", "In-app + Venice.ai web app") +
+    kv("Model access", "Inside Venice Forge") +
     kv("Model", S.model || "—") +
-    kv("Chat surface", VENICE_CHAT_URL) +
+    kv("Music models", "Music page only") +
     kv("Chat turns", String(S.chat.length)) +
     kv("Subagents", `${running}/${S.subagents.length} running`) +
     kv("Tokens", `${S.usage.in} in · ${S.usage.out} out`) +
     `<div class="field-label">Routing</div>` +
-    `<div class="code-block">Completions run in-app first; the Venice.ai chat web app${"\n"}(${E(VENICE_CHAT_URL)}) is the fallback for complex tasks.</div>` +
-    `<button class="btn-ghost" data-action="open-venice-chat">Open Venice.ai chat</button>`;
+    `<div class="code-block">Every generation stays in Venice Forge.\nSong models are not used on this page.</div>`;
 }
 
 function inspectorBodyHTML(S) {
@@ -398,7 +402,7 @@ function inspectorBodyHTML(S) {
     `<button class="mode-chip${S.agentMode === k ? " active" : ""}" data-action="set-mode" data-mode="${k}" aria-label="${k} mode">${m.chip}</button>`).join("");
   return `<div data-dev="panel-Agent" class="${show("Agent")}">` +
       `<div class="agent-mode-row">${modeChips}</div>` +
-      `<div class="field-label">Model</div>${selectBoxHTML("model-select", S.model, "Model")}` +
+      `<div class="field-label">Model</div>${selectBoxHTML("model-select", S.model, "Model")}${modelFilterHTML("model-select")}` +
       `<div class="field-label">Task</div>` +
       `<textarea class="agent-input" data-dev="task" placeholder="Describe what to build, fix or plan…"></textarea>` +
       `<div class="field-label">Max tokens</div>` +
@@ -411,7 +415,7 @@ function inspectorBodyHTML(S) {
     `<div data-dev="panel-Subagents" class="${show("Subagents")}">` +
       `<div class="field-label">Goal</div>` +
       `<div class="input-box"><input data-dev="sub-goal" placeholder="Describe an autonomous task…" /></div>` +
-      `<div class="field-label">Model</div>${selectBoxHTML("sub-model-select", subModel || S.model, "Subagent model")}` +
+      `<div class="field-label">Model</div>${selectBoxHTML("sub-model-select", subModel || S.model, "Subagent model")}${modelFilterHTML("sub-model-select")}` +
       `<button class="btn-primary" data-action="spawn" data-dev="spawn-btn">Spawn subagent</button>` +
       `<div class="field-label">Subagents (${S.subagents.length})</div>` +
       `<div data-dev="sub-list">${subListHTML(S)}</div>` +
@@ -561,7 +565,7 @@ function buildMessages(S, task) {
 }
 
 async function sendChat() {
-  const S = C?.state, F = C?.forge; if (!S || !F?.venice || chatInFlight) return;
+  const S = C?.state; if (!S || chatInFlight) return;
   const ta = q('[data-dev="task"]');
   const task = (ta?.value || "").trim();
   if (!task) { C?.notify?.("Describe a task first"); return; }
@@ -572,24 +576,17 @@ async function sendChat() {
   const btn = q('[data-dev="send-btn"]');
   chatInFlight = true;
   if (btn) { btn.disabled = true; btn.textContent = "Thinking…"; }
-  // Process in-app first; fall back to the Venice.ai web app on failure.
-  const canProcessInApp = typeof F.venice.processCompletion === "function";
   try {
-    if (canProcessInApp) {
-      const response = await F.venice.processCompletion(task, S.model);
-      S.chat.push({ role: "assistant", text: response, meta: "internal" });
-    } else {
-      await handOffToWebApp(S, F, task);
-    }
+    const res = await fetch("/api/studio/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: "text", modelId: S.model, prompt: task }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.text) throw new Error(data.message || data.error || "Venice did not return a reply.");
+    S.chat.push({ role: "assistant", text: data.text, meta: data.modelName || S.model });
   } catch (err) {
-    // In-app processing failed — try the web-app fallback before surfacing an error.
-    if (canProcessInApp && typeof F.venice.chatLink === "function") {
-      console.warn("In-app completion failed, falling back to web app:", err);
-      try { await handOffToWebApp(S, F, task); }
-      catch (fallbackErr) { pushError(S, fallbackErr); }
-    } else {
-      pushError(S, err);
-    }
+    pushError(S, err);
   } finally {
     chatInFlight = false;
     if (btn) { btn.disabled = false; btn.textContent = "Send task"; }
@@ -602,25 +599,12 @@ function pushError(S, err) {
   S.chat.push({ role: "assistant", text: "Could not process completion — " + (err?.message || err), meta: "error" });
 }
 
-/** Hand a task off to the Venice.ai web app (SSO + deep link). */
-async function handOffToWebApp(S, F, task) {
-  // Ensure SSO first — if cookies are already in the session this is a no-op.
-  if (typeof F.venice.loginState === "function") {
-    try {
-      const st = await F.venice.loginState();
-      if (!st?.loggedIn && typeof F.venice.importCookies === "function") await loginViaBrowserCookies();
-    } catch {}
-  }
-  // Hand the task to the Venice.ai web app — the app's model surface.
-  const link = typeof F.venice.chatLink === "function"
-    ? await F.venice.chatLink(task, S.model)
-    : VENICE_CHAT_URL;
-  await F.browser.open(link);
-  S.chat.push({
-    role: "assistant",
-    text: `Opened your task in the Venice.ai web app (${link}). Pick “${S.model}” there and continue — results paste straight back here.`,
-    meta: "web app"
-  });
+async function handOffToWebApp() {
+  C?.notify?.("Generation stays in Venice Forge.");
+}
+
+async function openVeniceChat() {
+  C?.notify?.("Chat stays in Venice Forge. Music models are only on the Music page.");
 }
 
 async function spawnSub() {
@@ -682,14 +666,18 @@ async function doCommit() {
 }
 
 async function loadModels() {
-  const S = C?.state, F = C?.forge; if (!S || !F?.venice) return;
-  if (!Array.isArray(S.models) || !S.models.length) {
+  const S = C?.state; if (!S) return;
+  if (!S.modelsLoaded) {
     if (modelsLoading) return;
     modelsLoading = true;
     try {
-      const fn = typeof F.venice.chatModels === "function" ? F.venice.chatModels : F.venice.models;
-      const ms = await fn.call(F.venice);
-      if (Array.isArray(ms) && ms.length) S.models = ms;
+      const res = await fetch("/api/studio/models?kind=text");
+      const data = await res.json();
+      if (Array.isArray(data.models) && data.models.length) {
+        S.models = data.models.map((m) => ({ id: m.id, name: m.name, surface: "chat" }));
+        S.modelsLoaded = true;
+        if (!S.models.some((m) => m.id === S.model)) S.model = S.models[0].id;
+      }
     } catch {}
     modelsLoading = false;
   }
@@ -715,19 +703,21 @@ function syncModelSelects() {
     const sel = q(`[data-dev="${dev}"]`);
     if (!sel) continue;
     const current = dev === "model-select" ? S.model : (subModel || S.model);
-    sel.innerHTML = modelOptionsHTML(S, current);
+    sel.innerHTML = modelOptionsHTML(S, current, dev);
     const value = sel.value;
     if (dev === "model-select") S.model = value;
     else subModel = value;
     const label = q(`[data-dev="${dev}-label"]`);
-    if (label) label.textContent = value;
+    if (label) label.textContent = sel.selectedOptions?.[0]?.textContent || value;
+    const filter = q(`[data-dev="model-filter"][data-for="${dev}"]`);
+    const count = (S.models || []).filter((m) => m && m.surface !== "image" && m.surface !== "video" && m.surface !== "music").length;
+    if (filter) filter.hidden = count < 12;
   }
 }
 
 function buildCurl() {
-  const S = C?.state || {};
   const task = (q('[data-dev="task"]')?.value || "").trim();
-  return F?.venice?.chatLink ? F.venice.chatLink(task, S.model) : VENICE_CHAT_URL;
+  return task || "Venice Forge task";
 }
 
 async function copyCurl() {
@@ -743,16 +733,7 @@ async function copyCurl() {
       t.remove();
     } catch {}
   }
-  C?.notify?.(ok ? "Venice.ai link copied" : "Copy failed");
-}
-
-async function openVeniceChat() {
-  const S = C?.state, F = C?.forge; if (!F?.browser) return;
-  const task = (q('[data-dev="task"]')?.value || "").trim();
-  const link = buildCurl();
-  try { await F.browser.open(link); }
-  catch (err) { C?.notify?.("Could not open Venice.ai — " + (err?.message || err)); return; }
-  if (task && S) S.chat.push({ role: "assistant", text: `Opened in Venice.ai web app: ${link}`, meta: "web app" });
+  C?.notify?.(ok ? "Task copied" : "Copy failed");
 }
 
 function useTemplate(id) {
@@ -859,7 +840,9 @@ function bindDelegates() {
   document.addEventListener("click", (e) => {
     const el = e.target.closest("[data-action]");
     if (!el || !el.closest('[data-dev="root"]')) return;
-    const S = C?.state, F = C?.forge; if (!S || !F) return;
+    const S = C?.state; if (!S) return;
+    const F = C?.forge;
+    if (el.dataset.action === "send") { sendChat(); return; }
     if (el.matches('.tree-item[role="treeitem"]')) focusTreePath(el.dataset.path);
     switch (el.dataset.action) {
       case "open-project":
@@ -899,7 +882,7 @@ function bindDelegates() {
       case "commit": doCommit(); break;
       case "git-refresh": loadGit(true); break;
       case "git-init":
-        if (S.projectDir) F.git.init(S.projectDir)
+        if (S.projectDir && F?.git) F.git.init(S.projectDir)
           .then(() => { C.notify?.("Repository initialised"); return loadGit(true); })
           .catch((err) => C.notify?.("Init failed — " + (err?.message || err)));
         break;
@@ -917,11 +900,37 @@ function bindDelegates() {
     }
   });
 
+  document.addEventListener("change", (e) => {
+    const t = e.target;
+    if (!t.matches || !t.closest('[data-dev="root"]')) return;
+    const S = C?.state; if (!S) return;
+    if (!t.matches('[data-dev="model-select"], [data-dev="sub-model-select"]')) return;
+    const dev = t.getAttribute("data-dev");
+    if (dev === "model-select") S.model = t.value;
+    else subModel = t.value;
+    const label = q(`[data-dev="${dev}-label"]`);
+    if (label) label.textContent = t.selectedOptions?.[0]?.textContent || t.value;
+    syncStatusbar();
+    syncApi();
+  });
+
   document.addEventListener("input", (e) => {
     const t = e.target;
     if (!t.closest || !t.closest('[data-dev="root"]')) return;
     const S = C?.state; if (!S) return;
     if (t.matches('[data-dev="tree-search"]')) { filterQ = t.value; syncTree(); return; }
+    if (t.matches('[data-dev="model-filter"]')) {
+      const dev = t.dataset.for;
+      if (!dev || !modelQuery || !(dev in modelQuery)) return;
+      modelQuery[dev] = t.value;
+      const sel = q(`[data-dev="${dev}"]`);
+      if (!sel) return;
+      const current = dev === "model-select" ? S.model : (subModel || S.model);
+      sel.innerHTML = modelOptionsHTML(S, current, dev);
+      const label = q(`[data-dev="${dev}-label"]`);
+      if (label) label.textContent = sel.selectedOptions?.[0]?.textContent || current || "model";
+      return;
+    }
     if (t.matches('[data-dev="editor"]') && S.activeFile) {
       S.openFiles.set(S.activeFile, t.value);
       syncGutter(); syncStatusbar(); syncTabs();
