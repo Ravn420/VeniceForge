@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "Node16",
+    "moduleResolution": "node16",
+    "esModuleInterop": true,
+    "strict": true,
+    "noImplicitAny": true,
+    "noImplicitThis": true,
+    "strictNullChecks": true,
+    "skipLibCheck": true,
+
+
+    "verbatimModuleSyntax": false,
+    "forceConsistentCasingInFileNames": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "composite": true,
+    "incremental": true,
+    "removeComments": true,
+
+    "types": ["node"],
+    "paths": {
+      "@forge/contracts": ["./packages/contracts/src/index.ts"],
+      "@forge/classifier": ["./packages/classifier/src/index.ts"],
+      "@forge/runner": ["./packages/runner/src/index.ts"]
+    }
+  }
+}

@@ -1,0 +1,18 @@
+[
+  {
+    "content": "Inspect workspace instructions and package setup",
+    "status": "completed"
+  },
+  {
+    "content": "Identify available native build toolchains",
+    "status": "completed"
+  },
+  {
+    "content": "Apply a safe dependency installation fix",
+    "status": "cancelled"
+  },
+  {
+    "content": "Verify installation outcome and report blockers",
+    "status": "completed"
+  }
+]

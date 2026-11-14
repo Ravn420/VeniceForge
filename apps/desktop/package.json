@@ -1,0 +1,48 @@
+{
+  "name": "venice-forge-desktop",
+  "version": "0.1.0",
+  "description": "Venice Forge AI Dev Studio",
+  "author": "Venice AI",
+  "private": true,
+  "main": "dist/main.cjs",
+  "scripts": {
+    "start": "pnpm run electron:dev",
+    "electron:dev": "electron .",
+    "build": "tsc -p tsconfig.json && node scripts/fix-cjs.cjs"
+  },
+  "dependencies": {
+    "better-sqlite3": "13.1.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "electron": "^33.2.0",
+    "electron-builder": "25.1.8",
+    "typescript": "^5.6.3"
+  },
+  "build": {
+    "appId": "ai.venice.forge",
+    "productName": "Venice Forge",
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "files": [
+      "dist/**/*",
+      "package.json",
+      "node_modules/better-sqlite3/prebuilds/win32-x64.node",
+      "node_modules/better-sqlite3/package.json"
+    ],
+    "asar": false,
+    "npmRebuild": false
+  }
+}

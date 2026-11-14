@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+node_modules.*backup*/
+
+# Builds & caches
+dist/
+release/
+tsconfig.*.tsbuildinfo
+npm-cache/
+
+# Logs & scratch outputs
+*.log
+out.txt
+tsc-*.txt
+
+# Electron
+apps/desktop/release/
+
+# Env & secrets — AUTH_SECRET and any tokens live here, never in git
+.env
+.env.*
+
+# OS
+# OS
+.DS_Store
+Thumbs.db
+nul
+
