@@ -7,7 +7,7 @@
 const $ = (sel) => document.querySelector(sel);
 const app = $("#app");
 
-const NAV_TABS = ["Library", "Chat", "Image Gen", "Video Studio", "Movie Editor", "Music", "Audio Score", "AI Dev Studio", "Integrations"];
+const NAV_TABS = ["Library", "Mobile", "Chat", "Image Gen", "Video Studio", "Movie Editor", "Music", "Audio Score", "AI Dev Studio", "Integrations"];
 
 const state = {
   tab: new URLSearchParams(location.search).get("tab") || (window.forge ? "AI Dev Studio" : "Music"),
