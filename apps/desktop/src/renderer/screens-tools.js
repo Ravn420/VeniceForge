@@ -6,6 +6,7 @@
 
   const S = {
     id: "open",
+    view: "installed",
     query: "",
     url: "https://example.com",
     selector: "a",
@@ -73,7 +74,77 @@
     { group: "Studio", id: "go-music", name: "Music", jump: "Music", needs: [], blurb: "Song models stay on the Music page." },
     { group: "Studio", id: "go-audio", name: "Audio Score", jump: "Audio Score", needs: [], blurb: "Voice and sound, not songs." },
     { group: "Studio", id: "go-dev", name: "AI Dev Studio", jump: "AI Dev Studio", needs: [], blurb: "Open the coding workspace." },
+
+    { group: "Plugins", id: "slug", name: "Slug", local: "slug", pack: true, needs: ["text"], blurb: "Turn a title into a URL slug." },
+    { group: "Plugins", id: "unique", name: "Unique lines", local: "unique", pack: true, needs: ["text"], blurb: "Drop duplicate lines and keep the first copy." },
+    { group: "Plugins", id: "csv", name: "CSV to JSON", local: "csv", pack: true, needs: ["text"], labels: { text: "CSV" }, blurb: "Read a comma-separated table into JSON." },
+    { group: "Plugins", id: "entities", name: "HTML entities", local: "entities", pack: true, needs: ["text"], blurb: "Encode <, >, and & so text is safe to show." },
+    { group: "Plugins", id: "query", name: "Query string", local: "query", pack: true, needs: ["text"], labels: { text: "URL or query" }, blurb: "List the parameters in a URL or query string." },
+
+    { group: "Reverse", id: "xor", name: "Single-byte XOR", local: "xor", pack: true, needs: ["text"], labels: { text: "Hex bytes" }, blurb: "Try all 256 keys on pasted hex and keep the most readable result." },
+    { group: "Reverse", id: "endian", name: "Endian swap", local: "endian", pack: true, needs: ["text"], labels: { text: "Hex word" }, blurb: "Reverse a 2, 4, or 8 byte hex word." },
+    { group: "Reverse", id: "hexmath", name: "Address math", local: "hexmath", pack: true, needs: ["text", "textB"], labels: { text: "Base", textB: "Offset" }, blurb: "Add and subtract two hex addresses." },
+    { group: "Reverse", id: "bits", name: "Bit view", local: "bits", pack: true, needs: ["text"], labels: { text: "Hex bytes" }, blurb: "Show each byte as hex and binary." },
+    { group: "Reverse", id: "histogram", name: "Byte histogram", local: "histogram", pack: true, needs: ["text"], labels: { text: "Hex bytes" }, blurb: "Count the most common bytes in a pasted dump." },
+    { group: "Reverse", id: "carve", name: "Carve blob", local: "carve", pack: true, needs: ["text"], blurb: "Pull URLs, base64, and hex runs out of a pasted blob." },
+    { group: "Reverse", id: "hashid", name: "Hash shape", local: "hashid", pack: true, needs: ["text"], labels: { text: "Hash" }, blurb: "Name a hash from its length. It does not recover the input." },
+    { group: "Reverse", id: "guid", name: "GUID bytes", local: "guid", pack: true, needs: ["text"], labels: { text: "UUID" }, blurb: "Show RFC order and Windows mixed-endian bytes." },
+    { group: "Reverse", id: "caesar", name: "Caesar", local: "caesar", pack: true, needs: ["text"], blurb: "Score the 26 letter shifts and show the most readable one." },
+
+    { group: "Code", id: "cases", name: "Identifier case", local: "cases", pack: true, needs: ["text"], labels: { text: "Identifier" }, blurb: "camelCase, PascalCase, snake_case, kebab-case, and SCREAMING_SNAKE." },
+    { group: "Code", id: "semver", name: "Semver compare", local: "semver", pack: true, needs: ["text", "textB"], labels: { text: "Version", textB: "Other" }, blurb: "Say which release is newer." },
+    { group: "Code", id: "dotenv", name: "Env file", local: "dotenv", pack: true, needs: ["text"], labels: { text: ".env" }, blurb: "Read KEY=value lines and skip comments." },
+    { group: "Code", id: "color", name: "Hex color", local: "color", pack: true, needs: ["text"], labels: { text: "Hex color" }, blurb: "Turn #rrggbb into RGB channels." },
+    { group: "Code", id: "cron", name: "Cron fields", local: "cron", pack: true, needs: ["text"], labels: { text: "Cron" }, blurb: "Label the five fields of a cron expression." },
+    { group: "Code", id: "dedent", name: "Dedent", local: "dedent", pack: true, needs: ["text"], blurb: "Remove the shared left indent from a pasted block." },
+    { group: "Code", id: "jsonpath", name: "JSON path", local: "jsonpath", pack: true, needs: ["text", "pattern"], labels: { text: "JSON", pattern: "Path" }, blurb: "Read one value, such as user.name or items.0.id." },
+    { group: "Code", id: "base", name: "Number bases", local: "base", pack: true, needs: ["text"], labels: { text: "Number" }, blurb: "Show a number in decimal, hex, octal, and binary." },
+    { group: "Code", id: "sqlline", name: "SQL one line", local: "sqlline", pack: true, needs: ["text"], labels: { text: "SQL" }, blurb: "Collapse a statement onto one line." },
+
+    { group: "Security", id: "ioc", name: "Extract indicators", local: "ioc", pack: true, needs: ["text"], blurb: "List URLs, emails, IPv4 addresses, and hash-shaped strings from a log." },
+    { group: "Security", id: "defang", name: "Defang", local: "defang", pack: true, needs: ["text"], labels: { text: "URL or host" }, blurb: "Make a URL safe to paste into a note." },
+    { group: "Security", id: "refang", name: "Refang", local: "refang", pack: true, needs: ["text"], labels: { text: "Defanged URL" }, blurb: "Turn hxxp and [.] back into a normal URL." },
+    { group: "Security", id: "ua", name: "User-Agent", local: "ua", pack: true, needs: ["text"], labels: { text: "User-Agent" }, blurb: "Read the browser and operating system from a User-Agent." },
+    { group: "Security", id: "basic", name: "Basic auth", local: "basic", pack: true, needs: ["text"], labels: { text: "Authorization" }, blurb: "Decode a Basic token you already have. It does not guess a password." },
+    { group: "Security", id: "cidr", name: "CIDR check", local: "cidr", pack: true, needs: ["text", "textB"], labels: { text: "CIDR", textB: "Address" }, blurb: "Say whether an IPv4 address sits inside a range." },
+    { group: "Security", id: "cookie", name: "Cookie header", local: "cookie", pack: true, needs: ["text"], labels: { text: "Cookie" }, blurb: "Split a Cookie header into names and values." },
+
+    { group: "Windows", id: "pe-header", name: "PE header", action: "inspect", kind: "pe", serverText: true, pack: true, needs: ["url", "text"], labels: { text: "Or paste hex", url: "Public URL" }, blurb: "Machine, subsystem, ASLR, sections, and a CLR check. The first look PE-bear and Ghidra make. Header only." },
+    { group: "Windows", id: "pe-die", name: "Packer scan", action: "inspect", kind: "die", serverText: true, pack: true, needs: ["url", "text"], labels: { text: "Or paste hex", url: "Public URL" }, blurb: "Packer marks and section entropy. The first look Detect It Easy makes. Nothing is unpacked." },
+    { group: "Windows", id: "pe-imports", name: "PE imports", action: "inspect", kind: "imports", serverText: true, pack: true, needs: ["url", "text"], labels: { text: "Or paste hex", url: "Public URL" }, blurb: "DLL names from the import table, when that table is in the bytes. PE-bear's import list. The file is not run." },
+    { group: "Windows", id: "pe-clr", name: "CLR version", action: "inspect", kind: "clr", serverText: true, pack: true, needs: ["url", "text"], labels: { text: "Or paste hex", url: "Public URL" }, blurb: "The .NET runtime version from the CLR header. ILSpy's first look. The IL is not decompiled." },
+    { group: "Windows", id: "wide-strings", name: "UTF-16 strings", action: "inspect", kind: "wide", serverText: true, pack: true, needs: ["url", "text"], labels: { text: "Or paste hex", url: "Public URL" }, blurb: "Plain UTF-16 strings. The static half of a string pass. Stack strings are not decoded." },
+    { group: "Android", id: "dex-header", name: "DEX header", action: "inspect", kind: "dex", serverText: true, pack: true, needs: ["url", "text"], labels: { text: "Or paste hex", url: "Public URL" }, blurb: "String, type, method, and class counts from classes.dex. The first look jadx makes. No decompile." },
+    { group: "Android", id: "dex-strings", name: "DEX strings", action: "inspect", kind: "dexstr", serverText: true, pack: true, needs: ["url", "text"], labels: { text: "Or paste hex", url: "Public URL" }, blurb: "The first strings in a DEX string table. JADX's string list, capped. The bytecode is not decompiled." },
+    { group: "Android", id: "apk-files", name: "APK files", action: "inspect", kind: "apk", serverText: true, pack: true, needs: ["url", "text"], labels: { text: "Or paste hex", url: "Public URL" }, blurb: "File names in the start of an APK, plus Flutter, Unity, React Native, or Kotlin if they are there. Apktool's first look. Nothing is rebuilt." },
+    { group: "Android", id: "il2cpp", name: "IL2CPP version", action: "inspect", kind: "il2cpp", serverText: true, pack: true, needs: ["url", "text"], labels: { text: "Or paste hex", url: "Public URL" }, blurb: "The version word in a Unity global-metadata.dat. Version only. Symbols are not restored." },
+    { group: "iOS", id: "macho-header", name: "Mach-O header", action: "inspect", kind: "macho", serverText: true, pack: true, needs: ["url", "text"], labels: { text: "Or paste hex", url: "Public URL" }, blurb: "CPU, platform, segments, linked libraries, and FairPlay cryptid. The first look otool makes. Nothing is decrypted." },
+    { group: "iOS", id: "entitlements", name: "Entitlements", action: "inspect", kind: "entitlements", serverText: true, pack: true, needs: ["url", "text"], labels: { text: "Or paste hex", url: "Public URL" }, blurb: "Entitlement keys already present as text. The same list ipsw prints. Nothing is decrypted." },
+    { group: "iOS", id: "objc-names", name: "ObjC class names", action: "inspect", kind: "objc", serverText: true, pack: true, needs: ["url", "text"], labels: { text: "Or paste hex", url: "Public URL" }, blurb: "Names in __objc_classname when that section is in the bytes. class-dump's first list. Nothing is decrypted." },
+    { group: "Transforms", id: "inflate", name: "Gzip inflate", local: "inflate", pack: true, needs: ["text"], labels: { text: "Hex or base64" }, blurb: "Inflate a gzip or zlib blob you paste. A CyberChef inflate step. It does not decrypt a cipher." },
+    { group: "Transforms", id: "httpmsg", name: "HTTP message", local: "httpmsg", pack: true, needs: ["text"], labels: { text: "Request or response" }, blurb: "Split a pasted HTTP message into its start line and headers. Traffic is not intercepted." },
   ];
+
+  const PLUGIN_KEY = "veniceforge.plugins";
+
+  function extraInstalled() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(PLUGIN_KEY) || "null");
+      if (saved && Array.isArray(saved.extra)) return saved.extra.filter((id) => CATALOG.some((t) => t.id === id && t.pack));
+    } catch { /* keep the built-in tools */ }
+    return [];
+  }
+
+  function isInstalled(id) {
+    const tool = CATALOG.find((t) => t.id === id);
+    if (!tool) return false;
+    if (!tool.pack) return true;
+    return extraInstalled().includes(id);
+  }
+
+  function saveExtra(ids) {
+    localStorage.setItem(PLUGIN_KEY, JSON.stringify({ extra: ids }));
+  }
 
   const LABELS = { url: "URL", method: "Method", engine: "Engine", selector: "Selector", headers: "Headers JSON", text: "Text", textB: "Second text", pattern: "Pattern" };
 
@@ -83,21 +154,35 @@
 
   function visibleTools() {
     const q = S.query.trim().toLowerCase();
-    if (!q) return CATALOG;
-    return CATALOG.filter((t) => (t.group + " " + t.name + " " + t.blurb).toLowerCase().includes(q));
+    return CATALOG.filter((t) => {
+      if (S.view === "available" ? isInstalled(t.id) : !isInstalled(t.id)) return false;
+      if (!q) return true;
+      return (t.group + " " + t.name + " " + t.blurb).toLowerCase().includes(q);
+    });
+  }
+
+  function tally() {
+    let installed = 0;
+    for (const tool of CATALOG) if (isInstalled(tool.id)) installed += 1;
+    return { installed, available: CATALOG.length - installed };
   }
 
   function listHtml() {
     const items = visibleTools();
-    if (!items.length) return '<div class="tool-empty">Nothing in the catalogue matches.</div>';
+    if (!items.length) {
+      if (S.query.trim()) return '<div class="tool-empty">No matches.</div>';
+      return S.view === "available"
+        ? '<div class="tool-empty">Everything here is already installed.</div>'
+        : '<div class="tool-empty">Nothing installed.</div>';
+    }
     let html = "";
     let group = "";
-    for (const t of items) {
-      if (t.group !== group) {
-        group = t.group;
+    for (const tool of items) {
+      if (tool.group !== group) {
+        group = tool.group;
         html += `<div class="tool-group">${esc(group)}</div>`;
       }
-      html += `<button type="button" class="tool-item${t.id === S.id ? " active" : ""}" data-tool="${esc(t.id)}"><span>${esc(t.name)}</span><small>${esc(t.blurb)}</small></button>`;
+      html += `<button type="button" class="tool-item${tool.id === S.id ? " active" : ""}" data-tool="${esc(tool.id)}" title="${esc(tool.blurb)}"><span>${esc(tool.name)}</span></button>`;
     }
     return html;
   }
@@ -125,34 +210,53 @@
   }
 
   function workHtml(tool) {
-    const fields = (tool.needs || []).map((key) => fieldBlock(tool, key)).join("");
-    return `
+    const on = isInstalled(tool.id);
+    const head = `
       <div class="tool-head">
-        <div class="tool-kicker">${esc(tool.group)}</div>
+        <div class="tool-kicker">${esc(tool.group)} · ${on ? "Installed" : "Available"}</div>
         <h2>${esc(tool.name)}</h2>
         <p class="tool-blurb">${esc(tool.blurb)}</p>
-      </div>
+      </div>`;
+    if (!on) {
+      return head + `
+        <div class="tool-actions">
+          <button type="button" class="btn-primary" id="tool-install">Install</button>
+        </div>`;
+    }
+    const fields = (tool.needs || []).map((key) => fieldBlock(tool, key)).join("");
+    const remove = tool.pack ? `<button type="button" class="btn-ghost" id="tool-remove">Remove</button>` : "";
+    const foot = (tool.needs || []).includes("url")
+      ? `<p class="tool-foot">Public sites only. Private and local addresses are refused.</p>`
+      : "";
+    return head + `
       ${fields ? `<div class="tool-fields">${fields}</div>` : ""}
       ${tool.hint ? `<p class="tool-hint">${esc(tool.hint)}</p>` : ""}
       <div class="tool-actions">
         <button type="button" class="btn-primary" id="tool-run">${tool.jump ? "Open" : "Run"}</button>
-        <button type="button" class="btn-ghost" id="tool-copy">Copy result</button>
+        <button type="button" class="btn-ghost" id="tool-copy">Copy</button>
+        ${remove}
       </div>
       <img id="tool-shot" class="tool-shot" alt="Screenshot of the opened page" hidden />
-      <pre id="tool-out" class="tool-out"></pre>
-      <p class="tool-foot">Public http and https only. Private networks, local addresses, and credentialed URLs are refused.</p>`;
+      <pre id="tool-out" class="tool-out" hidden></pre>
+      ${foot}`;
   }
 
   function render(ctx) {
     esc = ctx.esc;
-    return `<div class="tools-studio">
+    const counts = tally();
+    return `<div class="tools-screen">
+      <div class="tools-studio">
       <aside class="tool-rail">
-        <input id="tool-filter" class="model-filter" placeholder="Filter the catalogue" value="${esc(S.query)}" />
-        <div class="tool-count" id="tool-count"></div>
+        <div class="tool-switch" id="tool-tabs">
+          <button type="button" data-plugin-tab="installed"${S.view === "installed" ? " class=\"is-on\"" : ""}>Installed <em>${counts.installed}</em></button>
+          <button type="button" data-plugin-tab="available"${S.view === "available" ? " class=\"is-on\"" : ""}>Available <em>${counts.available}</em></button>
+        </div>
+        <input id="tool-filter" class="model-filter" placeholder="Filter" value="${esc(S.query)}" />
+        <div class="tool-count" id="tool-count" hidden></div>
         <div class="tool-list" id="tool-list">${listHtml()}</div>
       </aside>
       <section class="tool-work" id="tool-work">${workHtml(toolById(S.id))}</section>
-    </div>`;
+    </div></div>`;
   }
 
   function paintList() {
@@ -161,17 +265,19 @@
     const count = $("#tool-count");
     if (count) {
       const n = visibleTools().length;
-      count.textContent = n === CATALOG.length ? CATALOG.length + " tools" : n + " of " + CATALOG.length;
+      const filtering = !!S.query.trim();
+      count.hidden = !filtering;
+      count.textContent = n + " match" + (n === 1 ? "" : "es");
     }
   }
 
   function paintOut() {
     const pre = $("#tool-out");
     if (pre) {
-      const placeholder = !S.output && !S.image;
-      pre.textContent = placeholder ? "Results from the live tool appear here." : S.output;
+      const show = !!(S.output || S.image);
+      pre.hidden = !show;
+      pre.textContent = S.output || "";
       pre.classList.toggle("is-error", S.tone === "error");
-      pre.classList.toggle("is-placeholder", placeholder);
     }
     const img = $("#tool-shot");
     if (img) {
@@ -203,6 +309,15 @@
 
   function bytesOf(text) {
     return new TextEncoder().encode(text || "");
+  }
+
+  function hexBytes(text) {
+    const clean = String(text || "").replace(/0x/gi, "").replace(/[^0-9a-f]/gi, "");
+    if (!clean || clean.length % 2) throw new Error("Paste an even number of hex digits.");
+    if (clean.length > 8192) throw new Error("Keep the hex under 4096 bytes.");
+    const bytes = new Uint8Array(clean.length / 2);
+    for (let i = 0; i < bytes.length; i += 1) bytes[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
+    return bytes;
   }
 
   function hexOf(bytes, max) {
@@ -363,6 +478,333 @@
       const words = (text.trim().match(/\S+/g) || []).length;
       return bytesOf(text).length + " bytes\n" + text.length + " characters\n" + lines + " lines\n" + words + " words";
     },
+    slug() {
+      const slug = S.text.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+      if (!slug) throw new Error("Paste a title to turn into a slug.");
+      return slug;
+    },
+    unique() {
+      const seen = new Set();
+      const out = [];
+      for (const line of S.text.split("\n")) {
+        if (seen.has(line)) continue;
+        seen.add(line);
+        out.push(line);
+      }
+      if (!out.length) throw new Error("Paste some lines.");
+      return out.join("\n");
+    },
+    csv() {
+      const lines = S.text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n").filter((line) => line.length);
+      if (lines.length < 2) throw new Error("Paste a header row and at least one data row.");
+      const parse = (line) => {
+        const cells = [];
+        let cur = "";
+        let quoted = false;
+        for (let i = 0; i < line.length; i += 1) {
+          const ch = line[i];
+          if (quoted) {
+            if (ch === "\"" && line[i + 1] === "\"") { cur += "\""; i += 1; }
+            else if (ch === "\"") quoted = false;
+            else cur += ch;
+          } else if (ch === "\"") quoted = true;
+          else if (ch === ",") { cells.push(cur); cur = ""; }
+          else cur += ch;
+        }
+        cells.push(cur);
+        return cells;
+      };
+      const head = parse(lines[0]);
+      const rows = lines.slice(1).map((line) => {
+        const cells = parse(line);
+        const row = {};
+        head.forEach((key, i) => { row[key || ("column " + (i + 1))] = cells[i] ?? ""; });
+        return row;
+      });
+      return JSON.stringify(rows, null, 2);
+    },
+    entities() {
+      if (!S.text) throw new Error("Paste some text.");
+      return S.text
+        .replace(/&/g, "&" + "amp;")
+        .replace(/</g, "&" + "lt;")
+        .replace(/>/g, "&" + "gt;")
+        .replace(/"/g, "&" + "quot;");
+    },
+    query() {
+      const raw = S.text.trim();
+      if (!raw) throw new Error("Paste a URL or a query string.");
+      const q = raw.includes("?") ? raw.slice(raw.indexOf("?") + 1) : raw.replace(/^\?/, "");
+      const params = new URLSearchParams(q.split("#")[0]);
+      const rows = [...params.entries()];
+      if (!rows.length) throw new Error("That text has no query parameters.");
+      return rows.map(([key, value]) => key + " = " + value).join("\n");
+    },
+    xor() {
+      const bytes = hexBytes(S.text);
+      let best = { key: 0, score: -1, text: "" };
+      for (let key = 0; key < 256; key += 1) {
+        let score = 0;
+        let text = "";
+        for (const b of bytes) {
+          const n = b ^ key;
+          const ok = n === 9 || n === 10 || n === 13 || (n >= 32 && n < 127);
+          if (ok) score += 1;
+          if (text.length < 2000) text += ok ? String.fromCharCode(n) : ".";
+        }
+        if (score > best.score) best = { key, score, text };
+      }
+      return "key 0x" + best.key.toString(16).padStart(2, "0") + "  " + best.score + "/" + bytes.length + " printable\n" + best.text;
+    },
+    endian() {
+      const bytes = hexBytes(S.text);
+      if (bytes.length !== 2 && bytes.length !== 4 && bytes.length !== 8) throw new Error("Paste 2, 4, or 8 bytes.");
+      return [...bytes].reverse().map((b) => b.toString(16).padStart(2, "0")).join("");
+    },
+    hexmath() {
+      const parse = (value) => {
+        const raw = String(value || "").trim().replace(/^0x/i, "");
+        if (!/^[0-9a-f]+$/i.test(raw)) throw new Error("Use hex addresses.");
+        return BigInt("0x" + raw);
+      };
+      const fmt = (n) => (n < 0n ? "-0x" : "0x") + (n < 0n ? -n : n).toString(16);
+      const base = parse(S.text);
+      const off = parse(S.textB);
+      return "sum   " + fmt(base + off) + "\ndiff  " + fmt(base - off);
+    },
+    bits() {
+      const bytes = hexBytes(S.text);
+      return [...bytes].slice(0, 64).map((b) => b.toString(16).padStart(2, "0") + "  " + b.toString(2).padStart(8, "0")).join("\n");
+    },
+    histogram() {
+      const bytes = hexBytes(S.text);
+      const freq = new Array(256).fill(0);
+      for (const b of bytes) freq[b] += 1;
+      return freq.map((n, i) => ({ i, n })).filter((row) => row.n).sort((a, b) => b.n - a.n).slice(0, 16)
+        .map((row) => row.i.toString(16).padStart(2, "0") + "  " + row.n + "  " + (row.n / bytes.length * 100).toFixed(1) + "%").join("\n");
+    },
+    carve() {
+      const text = S.text.slice(0, 20000);
+      if (!text.trim()) throw new Error("Paste a blob.");
+      const take = (list) => (list || []).slice(0, 20);
+      const urls = take(text.match(/https?:\/\/[^\s"'<>]{4,200}/g));
+      const b64 = take(text.match(/[A-Za-z0-9+/]{24,}={0,2}/g));
+      const hex = take(text.match(/\b(?:[0-9a-fA-F]{2}[:\s]?){8,}/g));
+      const block = (name, list) => name + "\n" + (list.length ? list.join("\n") : "(none)");
+      return [block("URLs", urls), block("Base64", b64), block("Hex runs", hex)].join("\n\n");
+    },
+    hashid() {
+      const raw = S.text.trim();
+      const named = { 32: "MD5 or NTLM", 40: "SHA-1", 56: "SHA-224", 64: "SHA-256", 96: "SHA-384", 128: "SHA-512" };
+      if (/^[0-9a-f]+$/i.test(raw) && named[raw.length]) return named[raw.length] + "\n" + raw.length + " hex characters\nThis names the shape only. It does not recover an input.";
+      if (/^\$2[aby]\$/.test(raw)) return "bcrypt\nThis does not recover a password.";
+      throw new Error("That does not match a common hash shape.");
+    },
+    guid() {
+      const raw = S.text.trim().replace(/[{}]/g, "");
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw)) throw new Error("Paste a UUID.");
+      const bytes = hexBytes(raw.replace(/-/g, ""));
+      const hex = (list) => list.map((b) => b.toString(16).padStart(2, "0")).join(" ");
+      const mixed = [3, 2, 1, 0, 5, 4, 7, 6, 8, 9, 10, 11, 12, 13, 14, 15].map((i) => bytes[i]);
+      return "RFC\n" + hex(bytes) + "\n\nWindows mixed-endian\n" + hex(mixed);
+    },
+    caesar() {
+      if (!S.text.trim()) throw new Error("Paste some text.");
+      const weight = { e: 12, t: 9, a: 8, o: 8, i: 7, n: 7, s: 6, h: 6, r: 6 };
+      let best = null;
+      for (let shift = 0; shift < 26; shift += 1) {
+        let score = 0;
+        let out = "";
+        for (const ch of S.text) {
+          const lower = ch.toLowerCase();
+          if (lower >= "a" && lower <= "z") {
+            const next = String.fromCharCode(((lower.charCodeAt(0) - 97 + shift) % 26) + 97);
+            score += weight[next] || 0;
+            out += ch === lower ? next : next.toUpperCase();
+          } else out += ch;
+        }
+        if (!best || score > best.score) best = { shift, score, out: out.slice(0, 2000) };
+      }
+      return "shift " + best.shift + "\n" + best.out;
+    },
+    cases() {
+      const words = S.text.trim().replace(/([a-z0-9])([A-Z])/g, "$1 $2").split(/[^A-Za-z0-9]+/).filter(Boolean).map((word) => word.toLowerCase());
+      if (!words.length) throw new Error("Paste an identifier.");
+      const cap = (word) => word.charAt(0).toUpperCase() + word.slice(1);
+      return [
+        "camel   " + words[0] + words.slice(1).map(cap).join(""),
+        "pascal  " + words.map(cap).join(""),
+        "snake   " + words.join("_"),
+        "kebab   " + words.join("-"),
+        "scream  " + words.join("_").toUpperCase(),
+      ].join("\n");
+    },
+    semver() {
+      const parse = (value) => {
+        const match = String(value || "").trim().match(/^v?(\d+)\.(\d+)\.(\d+)/);
+        if (!match) throw new Error("Use versions like 1.2.3.");
+        return match.slice(1).map(Number);
+      };
+      const left = parse(S.text);
+      const right = parse(S.textB);
+      for (let i = 0; i < 3; i += 1) {
+        if (left[i] === right[i]) continue;
+        return (left[i] > right[i] ? S.text : S.textB).trim() + " is newer";
+      }
+      return "They are the same release.";
+    },
+    dotenv() {
+      const rows = [];
+      for (const line of S.text.split("\n")) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#")) continue;
+        const cut = trimmed.indexOf("=");
+        if (cut < 1) continue;
+        rows.push(trimmed.slice(0, cut) + " = " + trimmed.slice(cut + 1).replace(/^["']|["']$/g, ""));
+      }
+      if (!rows.length) throw new Error("Paste KEY=value lines.");
+      return rows.join("\n");
+    },
+    color() {
+      let hex = S.text.trim().replace(/^#/, "");
+      if (hex.length === 3) hex = hex.split("").map((ch) => ch + ch).join("");
+      if (!/^[0-9a-f]{6}$/i.test(hex)) throw new Error("Paste a hex color, like #1b6b4a.");
+      const n = parseInt(hex, 16);
+      const r = (n >> 16) & 255;
+      const g = (n >> 8) & 255;
+      const b = n & 255;
+      return "rgb(" + r + ", " + g + ", " + b + ")";
+    },
+    cron() {
+      const parts = S.text.trim().split(/\s+/);
+      if (parts.length !== 5) throw new Error("Use five fields: minute hour day month weekday.");
+      const names = ["minute", "hour", "day of month", "month", "weekday"];
+      return parts.map((part, i) => names[i].padEnd(14, " ") + (part === "*" ? "every" : part)).join("\n");
+    },
+    dedent() {
+      const lines = S.text.replace(/\t/g, "  ").split("\n");
+      const widths = lines.filter((line) => line.trim()).map((line) => line.match(/^ */)[0].length);
+      if (!widths.length) throw new Error("Paste some text.");
+      const cut = Math.min(...widths);
+      return lines.map((line) => line.slice(cut)).join("\n");
+    },
+    jsonpath() {
+      if (!S.text.trim()) throw new Error("Paste JSON.");
+      const path = S.pattern.trim();
+      if (!path) throw new Error("Enter a path, like user.name or items.0.id.");
+      let cur = JSON.parse(S.text);
+      for (const part of path.split(".").filter(Boolean)) {
+        if (cur == null || typeof cur !== "object" || !(part in cur)) throw new Error("No value at " + path + ".");
+        cur = cur[part];
+      }
+      return typeof cur === "string" ? cur : JSON.stringify(cur, null, 2);
+    },
+    base() {
+      const raw = S.text.trim().toLowerCase();
+      if (!raw) throw new Error("Paste a number.");
+      const from = raw.startsWith("0x") ? 16 : raw.startsWith("0b") ? 2 : raw.startsWith("0o") ? 8 : 10;
+      const digits = raw.replace(/^0x|^0b|^0o/, "");
+      if (!/^[0-9a-f]+$/.test(digits)) throw new Error("That is not a number this tool understands.");
+      const n = BigInt(from === 16 ? "0x" + digits : from === 2 ? "0b" + digits : from === 8 ? "0o" + digits : digits);
+      return "dec  " + n.toString(10) + "\nhex  0x" + n.toString(16) + "\noct  0o" + n.toString(8) + "\nbin  0b" + n.toString(2);
+    },
+    sqlline() {
+      const sql = S.text.replace(/\s+/g, " ").trim();
+      if (!sql) throw new Error("Paste a SQL statement.");
+      return sql;
+    },
+    ioc() {
+      const text = S.text.slice(0, 50000);
+      if (!text.trim()) throw new Error("Paste a report or a log.");
+      const uniq = (list) => [...new Set(list || [])].slice(0, 40);
+      const block = (name, list) => name + "\n" + (list.length ? list.join("\n") : "(none)");
+      return [
+        block("URLs", uniq(text.match(/https?:\/\/[^\s"'<>]{4,200}/g))),
+        block("Emails", uniq(text.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi))),
+        block("IPv4", uniq(text.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g))),
+        block("Hashes", uniq(text.match(/\b[a-f0-9]{32}\b|\b[a-f0-9]{40}\b|\b[a-f0-9]{64}\b/gi))),
+      ].join("\n\n");
+    },
+    defang() {
+      if (!S.text.trim()) throw new Error("Paste a URL or a host.");
+      return S.text.replace(/https/gi, "hxxps").replace(/http/gi, "hxxp").replace(/\./g, "[.]");
+    },
+    refang() {
+      if (!S.text.trim()) throw new Error("Paste a defanged URL.");
+      return S.text.replace(/hxxps/gi, "https").replace(/hxxp/gi, "http").replace(/\[\.\]/g, ".").replace(/\(dot\)/gi, ".");
+    },
+    ua() {
+      const text = S.text.trim();
+      if (!text) throw new Error("Paste a User-Agent.");
+      const browser = (text.match(/Edg\/[\d.]+|Chrome\/[\d.]+|Firefox\/[\d.]+|Version\/[\d.]+/) || ["unknown"])[0];
+      const os = /Windows/.test(text) ? "Windows" : /Mac OS X/.test(text) ? "macOS" : /Android/.test(text) ? "Android" : /iPhone|iPad/.test(text) ? "iOS" : /Linux/.test(text) ? "Linux" : "unknown";
+      return "browser  " + browser + "\nos       " + os;
+    },
+    basic() {
+      const raw = S.text.trim().replace(/^Basic\s+/i, "");
+      if (!raw) throw new Error("Paste a Basic authorization value you already have.");
+      let decoded = "";
+      try { decoded = atob(raw); } catch { throw new Error("That is not base64."); }
+      const cut = decoded.indexOf(":");
+      if (cut < 1) throw new Error("A Basic token is user:password in base64.");
+      return "user  " + decoded.slice(0, cut) + "\npass  " + decoded.slice(cut + 1);
+    },
+    cidr() {
+      const ip4 = (value) => {
+        const parts = String(value || "").trim().split(".").map(Number);
+        if (parts.length !== 4 || parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) throw new Error("Use an IPv4 address.");
+        return ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
+      };
+      const [net, bitsRaw] = S.text.trim().split("/");
+      const bits = Number(bitsRaw);
+      if (!Number.isInteger(bits) || bits < 0 || bits > 32) throw new Error("Use a CIDR like 10.0.0.0/8.");
+      const mask = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0;
+      const inside = (ip4(S.textB) & mask) === (ip4(net) & mask);
+      return inside ? "Inside the range." : "Outside the range.";
+    },
+    cookie() {
+      const parts = S.text.split(";").map((part) => part.trim()).filter(Boolean);
+      if (!parts.length) throw new Error("Paste a Cookie header.");
+      return parts.map((part) => {
+        const cut = part.indexOf("=");
+        return cut < 0 ? part : part.slice(0, cut) + " = " + part.slice(cut + 1);
+      }).join("\n");
+    },
+    async inflate() {
+      const raw = S.text.trim();
+      if (!raw) throw new Error("Paste gzip or zlib bytes as hex or base64.");
+      const hexish = raw.replace(/0x/gi, "").replace(/[\s:]/g, "");
+      let bytes;
+      if (/^[0-9a-f]+$/i.test(hexish) && hexish.length % 2 === 0) bytes = hexBytes(raw);
+      else {
+        const bin = atob(raw.replace(/\s/g, ""));
+        bytes = Uint8Array.from(bin, (ch) => ch.charCodeAt(0));
+      }
+      if (bytes.length > 200000) throw new Error("Keep the input under 200 KB.");
+      const once = async (format) => {
+        const stream = new DecompressionStream(format);
+        const response = new Response(new Blob([bytes]).stream().pipeThrough(stream));
+        const out = new Uint8Array(await response.arrayBuffer());
+        return new TextDecoder().decode(out.slice(0, 8000));
+      };
+      try { return await once("gzip"); }
+      catch {
+        try { return await once("deflate"); }
+        catch { throw new Error("Those bytes are not gzip or zlib."); }
+      }
+    },
+    httpmsg() {
+      const text = S.text.replace(/\r\n/g, "\n").trim();
+      if (!text) throw new Error("Paste an HTTP request or response.");
+      const lines = text.split("\n");
+      const headers = [];
+      for (let i = 1; i < lines.length; i += 1) {
+        if (!lines[i].trim()) break;
+        const cut = lines[i].indexOf(":");
+        if (cut > 0) headers.push(lines[i].slice(0, cut).trim() + "  " + lines[i].slice(cut + 1).trim());
+      }
+      return lines[0] + "\n\n" + (headers.join("\n") || "(no headers)") + "\n\nParsed only. Traffic was not intercepted.";
+    },
     strings: localStrings,
     hex() { return hexOf(bytesOf(S.text), 768) || "(empty)"; },
     magic: localMagic,
@@ -376,6 +818,12 @@
 
   function formatResult(data) {
     if (data == null) return "";
+    if (typeof data.report === "string") {
+      const head = data.url
+        ? "HTTP " + data.status + "  " + data.url + "\n" + (data.bytes ?? "") + " bytes\n\n"
+        : (data.bytes ?? "") + " bytes from pasted hex\n\n";
+      return head + data.report;
+    }
     if (typeof data === "string") return data;
     if (Array.isArray(data.engines)) {
       return data.engines.map((e) => {
@@ -443,10 +891,12 @@
     S.output = "Running…";
     paintOut();
     try {
+      if (!isInstalled(tool.id)) throw new Error("Install this plugin first.");
       const wantsUrl = (tool.needs || []).includes("url");
       if (tool.hybrid && !S.url.trim() && !S.text.trim()) throw new Error("Give a public URL or paste text.");
-      if (tool.action && wantsUrl && !tool.hybrid && !S.url.trim()) throw new Error("Give a public URL.");
-      const server = tool.action && (!tool.hybrid || S.url.trim());
+      if (tool.serverText && !S.url.trim() && !S.text.trim()) throw new Error("Give a public URL or paste hex.");
+      if (tool.action && wantsUrl && !tool.hybrid && !tool.serverText && !S.url.trim()) throw new Error("Give a public URL.");
+      const server = tool.action && (!tool.hybrid || S.url.trim() || tool.serverText);
       if (server) {
         const res = await fetch("/api/tools/run", {
           method: "POST",
@@ -497,11 +947,53 @@
     }
   }
 
+  function showTool(ctx) {
+    const work = $("#tool-work");
+    if (work) work.innerHTML = workHtml(toolById(S.id));
+    paintList();
+    bindWork(ctx);
+    paintOut();
+  }
+
+  function installCurrent(ctx) {
+    const tool = toolById(S.id);
+    if (!tool.pack || isInstalled(tool.id)) return;
+    saveExtra([...new Set([...extraInstalled(), tool.id])]);
+    S.view = "installed";
+    S.output = "";
+    S.image = "";
+    S.tone = "";
+    ctx.notify(tool.name + " installed");
+    const root = document.querySelector(".tools-screen");
+    if (!root) return;
+    root.outerHTML = render(ctx);
+    wire(ctx);
+  }
+
+  function removeCurrent(ctx) {
+    const tool = toolById(S.id);
+    if (!tool.pack) return;
+    saveExtra(extraInstalled().filter((id) => id !== tool.id));
+    S.view = "available";
+    S.output = "";
+    S.image = "";
+    S.tone = "";
+    ctx.notify(tool.name + " removed");
+    const root = document.querySelector(".tools-screen");
+    if (!root) return;
+    root.outerHTML = render(ctx);
+    wire(ctx);
+  }
+
   function bindWork(ctx) {
     const run = $("#tool-run");
     if (run) run.onclick = () => execute(ctx);
     const copy = $("#tool-copy");
     if (copy) copy.onclick = () => copyOut(ctx);
+    const install = $("#tool-install");
+    if (install) install.onclick = () => installCurrent(ctx);
+    const remove = $("#tool-remove");
+    if (remove) remove.onclick = () => removeCurrent(ctx);
     const work = $("#tool-work");
     if (work) {
       work.onkeydown = (e) => {
@@ -517,6 +1009,21 @@
     esc = ctx.esc;
     paintList();
     paintOut();
+    document.querySelectorAll("[data-plugin-tab]").forEach((btn) => {
+      btn.onclick = () => {
+        const next = btn.dataset.pluginTab === "available" ? "available" : "installed";
+        if (next === S.view) return;
+        readFields();
+        S.view = next;
+        S.query = "";
+        const items = visibleTools();
+        if (!items.some((t) => t.id === S.id)) S.id = items[0] ? items[0].id : S.id;
+        const root = document.querySelector(".tools-screen");
+        if (!root) return;
+        root.outerHTML = render(ctx);
+        wire(ctx);
+      };
+    });
     const filter = $("#tool-filter");
     if (filter) {
       filter.addEventListener("input", () => {
@@ -534,11 +1041,7 @@
         S.output = "";
         S.image = "";
         S.tone = "";
-        const work = $("#tool-work");
-        if (work) work.innerHTML = workHtml(toolById(S.id));
-        paintList();
-        bindWork(ctx);
-        paintOut();
+        showTool(ctx);
       });
     }
     bindWork(ctx);

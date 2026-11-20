@@ -10,6 +10,7 @@
       studios[id] = {
         models: [], modelId: "", query: "", prompt: "", aspect: "", duration: "", resolution: "",
         busy: false, status: "Loading Venice models…", tone: "", messages: [], resultUrl: "",
+        results: [], count: 1,
       };
     }
     return studios[id];
@@ -33,6 +34,7 @@
           <div class="gen-stage">
             <div class="gen-canvas${st.busy ? " is-busy" : ""}" id="${esc(opts.id)}-frame">
             <img id="${esc(opts.id)}-img" alt="" hidden />
+            <div class="gen-gallery" id="${esc(opts.id)}-gallery" hidden></div>
             <video id="${esc(opts.id)}-video" controls playsinline hidden></video>
             <audio id="${esc(opts.id)}-audio" controls hidden></audio>
             <div class="gen-log" id="${esc(opts.id)}-log" hidden></div>
@@ -42,6 +44,7 @@
             </div>
             </div>
           </div>
+          <p class="gen-note" id="${esc(opts.id)}-note" hidden></p>
         </section>
         <aside class="inspector music-controls">
           <div class="panel-head"><span class="panel-title">Model</span></div>
@@ -54,6 +57,15 @@
             </div>
             <input class="model-filter" id="${esc(opts.id)}-filter" type="search" placeholder="Filter models" value="${esc(st.query)}" hidden />
             <p class="music-desc" id="${esc(opts.id)}-desc">${model ? esc(model.description || "") : ""}</p>
+            ${opts.result === "image" ? `
+            <div id="${esc(opts.id)}-count-wrap">
+              <div class="field-label">Images</div>
+              <div class="select-box">
+                <span id="${esc(opts.id)}-count-label">${esc(String(st.count || 1))}</span>
+                <span aria-hidden="true">⌄</span>
+                <select id="${esc(opts.id)}-count" aria-label="How many images">${[1, 2, 3, 4].map((n) => `<option value="${n}"${Number(st.count) === n ? " selected" : ""}>${n}</option>`).join("")}</select>
+              </div>
+            </div>` : ""}
             <div id="${esc(opts.id)}-aspect-wrap" hidden>
               <div class="field-label">Aspect</div>
               <div class="select-box">
@@ -150,12 +162,20 @@
     const promptOk = model && prompt.length >= min && (!max || prompt.length <= max);
     if (hint) hint.textContent = model ? `${prompt.length}${max ? "/" + max : ""}` : "";
     if (go) {
+      const many = opts.result === "image" && Number(st.count) > 1;
       go.disabled = st.busy || !promptOk;
-      go.textContent = st.busy ? "Generating…" : (opts.button || "Generate");
+      go.textContent = st.busy ? "Generating…" : (many ? `Generate ${st.count}` : (opts.button || "Generate"));
     }
     if (status && !st.busy) {
       status.textContent = st.status;
       status.className = "sub" + (st.tone ? " " + st.tone : "");
+    }
+    const note = document.getElementById(opts.id + "-note");
+    if (note) {
+      const show = opts.result === "image" && (st.results.length > 0 || (st.busy && st.tone === "error"));
+      note.hidden = !show;
+      note.textContent = st.status;
+      note.className = "gen-note" + (st.tone ? " " + st.tone : "");
     }
     if (opts.result === "text") {
       const empty = document.getElementById(opts.id + "-empty");
@@ -226,6 +246,73 @@
     return st.inflight;
   }
 
+  function extOf(type) {
+    const t = String(type || "").toLowerCase();
+    if (t.includes("png")) return "png";
+    if (t.includes("jpeg") || t.includes("jpg")) return "jpg";
+    if (t.includes("webm")) return "webm";
+    if (t.includes("mp4")) return "mp4";
+    if (t.includes("mpeg") || t.includes("mp3")) return "mp3";
+    if (t.includes("wav")) return "wav";
+    return "webp";
+  }
+
+  function showGallery(opts) {
+    const st = slot(opts.id);
+    const gallery = document.getElementById(opts.id + "-gallery");
+    const empty = document.getElementById(opts.id + "-empty");
+    const img = document.getElementById(opts.id + "-img");
+    if (img) img.hidden = true;
+    if (!gallery) return;
+    const items = st.results || [];
+    if (!items.length) {
+      gallery.hidden = true;
+      gallery.innerHTML = "";
+      return;
+    }
+    if (empty) empty.hidden = true;
+    gallery.hidden = false;
+    gallery.className = "gen-gallery n-" + Math.min(4, items.length);
+    gallery.innerHTML = `
+      <div class="gen-toolbar">
+        <span>${items.length} image${items.length === 1 ? "" : "s"}</span>
+        <button type="button" class="gen-clear" data-clear-all>Clear all</button>
+      </div>
+      ${items.map((item, i) => `
+      <figure class="gen-card">
+        <img src="${esc(item.url)}" alt="Generated image ${i + 1}" />
+        <div class="gen-actions">
+          <a class="gen-download" href="${esc(item.url)}" download="${esc(item.name)}">Download</a>
+          <button type="button" class="gen-clear" data-clear="${i}">Clear</button>
+        </div>
+      </figure>`).join("")}`;
+    const finish = () => {
+      if (!st.results.length) {
+        st.status = "Cleared.";
+        st.tone = "";
+        gallery.hidden = true;
+        gallery.innerHTML = "";
+        if (empty) empty.hidden = false;
+      }
+      showGallery(opts);
+      sync(opts);
+    };
+    gallery.querySelector("[data-clear-all]")?.addEventListener("click", () => {
+      for (const item of st.results) if (item?.url) URL.revokeObjectURL(item.url);
+      st.results = [];
+      finish();
+    });
+    gallery.querySelectorAll("[data-clear]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const index = Number(btn.dataset.clear);
+        const gone = st.results[index];
+        if (gone?.url) URL.revokeObjectURL(gone.url);
+        st.results.splice(index, 1);
+        finish();
+      });
+    });
+  }
+
   function showMedia(opts, url, type) {
     const st = slot(opts.id);
     const empty = document.getElementById(opts.id + "-empty");
@@ -256,6 +343,10 @@
     const status = document.getElementById(opts.id + "-status");
     const empty = document.getElementById(opts.id + "-empty");
     if (opts.result !== "text" && empty) empty.hidden = false;
+    if (opts.result === "image") {
+      const gallery = document.getElementById(opts.id + "-gallery");
+      if (gallery) { gallery.hidden = true; gallery.innerHTML = ""; }
+    }
     if (status) status.textContent = st.status;
     sync(opts);
     const payload = {
@@ -274,39 +365,82 @@
       if (box) box.value = "";
       paintLog(opts);
     }
+    const count = opts.result === "image" ? Math.min(4, Math.max(1, Number(st.count) || 1)) : 1;
     try {
-      const res = await fetch("/api/studio/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (token !== st.token) return;
-      const type = res.headers.get("content-type") || "";
-      if (type.includes("json")) {
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok || !json.text) {
-          const message = json.message || json.error || "Venice did not return a result.";
-          st.status = message;
-          st.tone = "error";
-          if (opts.result === "text") st.messages.push({ role: "assistant", text: message, who: "Venice" });
-        } else if (opts.result === "text") {
-          st.messages.push({ role: "assistant", text: json.text, who: json.modelName || model.name });
-          st.status = "Reply is in the studio.";
-          st.tone = "";
-        } else {
-          st.status = json.message || "Venice did not return media.";
-          st.tone = "error";
-        }
-      } else if (!res.ok) {
-        st.status = "Venice refused this generation.";
-        st.tone = "error";
-      } else {
-        const blob = await res.blob();
+      const made = [];
+      if (opts.result === "image") {
+        for (const old of st.results) URL.revokeObjectURL(old.url);
+        st.results = [];
+      }
+      for (let i = 0; i < count; i += 1) {
         if (token !== st.token) return;
-        const url = URL.createObjectURL(blob);
-        const media = opts.result === "video" ? "video" : opts.result === "audio" ? "audio" : "image";
-        showMedia(opts, url, media);
-        st.status = `${model.name} finished inside Venice Forge.`;
+        if (count > 1) {
+          st.status = `Generating ${i + 1} of ${count}…`;
+          if (status) status.textContent = st.status;
+        }
+        const res = await fetch("/api/studio/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (token !== st.token) return;
+        const type = res.headers.get("content-type") || "";
+        if (type.includes("json")) {
+          const json = await res.json().catch(() => ({}));
+          if (!res.ok || !json.text) {
+            const message = json.message || json.error || "Venice did not return a result.";
+            st.status = made.length ? `${made.length} finished. ${message}` : message;
+            st.tone = made.length ? "" : "error";
+            if (opts.result === "text") st.messages.push({ role: "assistant", text: message, who: "Venice" });
+            break;
+          } else if (opts.result === "text") {
+            st.messages.push({ role: "assistant", text: json.text, who: json.modelName || model.name });
+            st.status = "Reply is in the studio.";
+            st.tone = "";
+          } else {
+            st.status = json.message || "Venice did not return media.";
+            st.tone = "error";
+            break;
+          }
+        } else if (!res.ok) {
+          st.status = made.length ? `${made.length} finished. Venice refused the next image.` : "Venice refused this generation.";
+          st.tone = made.length ? "" : "error";
+          break;
+        } else {
+          const blob = await res.blob();
+          if (token !== st.token) return;
+          if (!blob.size) {
+            st.status = "Venice returned an empty image.";
+            st.tone = "error";
+            break;
+          }
+          const media = opts.result === "video" ? "video" : opts.result === "audio" ? "audio" : "image";
+          if (media === "image") {
+            const item = {
+              url: URL.createObjectURL(blob),
+              name: `${model.id}-${i + 1}.${extOf(blob.type || type)}`,
+            };
+            made.push(item);
+            st.results = made.slice();
+            showGallery(opts);
+            st.status = count === 1 ? `${model.name} finished inside Venice Forge.` : `${made.length} of ${count} ready.`;
+            st.tone = "";
+            const note = document.getElementById(opts.id + "-note");
+            if (note) {
+              note.hidden = false;
+              note.textContent = st.status;
+              note.className = "gen-note";
+            }
+          } else {
+            const url = URL.createObjectURL(blob);
+            showMedia(opts, url, media);
+            st.status = `${model.name} finished inside Venice Forge.`;
+            st.tone = "";
+          }
+        }
+      }
+      if (opts.result === "image" && made.length === count) {
+        st.status = count === 1 ? `${model.name} finished inside Venice Forge.` : `${count} images finished inside Venice Forge.`;
         st.tone = "";
       }
     } catch (err) {
@@ -347,6 +481,13 @@
         if (label) label.textContent = el.selectedOptions?.[0]?.textContent || el.value;
       };
     }
+    const count = document.getElementById(opts.id + "-count");
+    if (count) count.onchange = () => {
+      st.count = Math.min(4, Math.max(1, Number(count.value) || 1));
+      const label = document.getElementById(opts.id + "-count-label");
+      if (label) label.textContent = String(st.count);
+      sync(opts);
+    };
     if (go) go.onclick = () => generate(opts);
     if (prompt) prompt.onkeydown = (e) => {
       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); generate(opts); }
@@ -354,7 +495,8 @@
     ensure(opts).then(() => {
       if (!document.getElementById(opts.id + "-root")) return;
       if (select) fillModels(opts);
-      if (st.resultUrl && opts.result !== "text") showMedia(opts, st.resultUrl, opts.result === "video" ? "video" : opts.result === "audio" ? "audio" : "image");
+      if (st.results.length && opts.result === "image") showGallery(opts);
+      else if (st.resultUrl && opts.result !== "text") showMedia(opts, st.resultUrl, opts.result === "video" ? "video" : opts.result === "audio" ? "audio" : "image");
       if (opts.result === "text" && st.messages.length) paintLog(opts);
       sync(opts);
     });

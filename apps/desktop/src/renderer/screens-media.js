@@ -7,31 +7,215 @@
   "use strict";
 
   const store = {
-    movieClips: [
-      { id: 1, track: "V1", name: "Arrival", start: 0, len: 4.2, color: "#8175ff" },
-      { id: 2, track: "V1", name: "Threshold", start: 5.1, len: 3.6, color: "#9ea9ff" },
-      { id: 3, track: "V2", name: "Score bed", start: 0, len: 12, bars: 44, color: "#72ddb8" },
-    ],
+    movie: {
+      id: "",
+      name: "",
+      frameCount: 0,
+      cleanCount: 0,
+      scale: "4x",
+      phase: "",
+      status: "Choose a downloaded video.",
+      tone: "",
+      busy: false,
+      result: false,
+      duration: 0,
+      fps: 0,
+      width: 0,
+      height: 0,
+      look: 0,
+      nsfw: false,
+    },
   };
 
   const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
   /* ============================================================
-     IMAGE GEN
+     IMAGE GEN — Create stays on the studio panel. Edit is img2img.
      ============================================================ */
+  const imageUi = {
+    mode: "create",
+    models: [],
+    modelId: "",
+    prompt: "",
+    aspect: "",
+    resolution: "",
+    quality: "",
+    thinking: "",
+    enhance: false,
+    reasoning: false,
+    transparent: false,
+    sources: [],
+    activeId: null,
+    tool: "doodle",
+    brush: 28,
+    color: "#e85d4c",
+    marks: {},
+    busy: false,
+    status: "Add an image, then say what to change. The edit stays in this studio.",
+    tone: "",
+    resultUrl: "",
+    resultName: "venice-edit.png",
+    results: [],
+    count: 1,
+    view: "source",
+  };
+
+  function editModel() {
+    return imageUi.models.find((m) => m.id === imageUi.modelId) || null;
+  }
+
+  function activeSource() {
+    return imageUi.sources.find((s) => s.id === imageUi.activeId) || imageUi.sources[0] || null;
+  }
+
+  function marksFor(id) {
+    if (!imageUi.marks[id]) imageUi.marks[id] = { doodle: [], mask: [] };
+    return imageUi.marks[id];
+  }
+
+  function aspectLocked() {
+    const model = editModel();
+    return !!(model && model.singleImageAspectRatio === false && imageUi.sources.length < 2);
+  }
+
+  function modeTabs() {
+    const mode = imageUi.mode === "edit" ? "edit" : "create";
+    return `<div class="image-modes" role="tablist">
+      <button type="button" data-image-mode="create" role="tab" aria-selected="${mode === "create"}" class="${mode === "create" ? "is-on" : ""}">Create</button>
+      <button type="button" data-image-mode="edit" role="tab" aria-selected="${mode === "edit"}" class="${mode === "edit" ? "is-on" : ""}">Edit</button>
+    </div>`;
+  }
+
+  function choiceBox(id, label, values, current) {
+    if (!values.length) return "";
+    const options = values.map((value) => `<option value="${esc(value)}"${value === current ? " selected" : ""}>${esc(value)}</option>`).join("");
+    return `<div class="field-label">${esc(label)}</div>
+      <div class="select-box">
+        <span>${esc(current || values[0])}</span>
+        <span aria-hidden="true">⌄</span>
+        <select id="${id}" aria-label="${esc(label)}">${options}</select>
+      </div>`;
+  }
+
+  function editChecks(model) {
+    if (!model) return "";
+    const bits = [];
+    if (!model.hasBuiltInPromptEnhancer) bits.push(`<label class="edit-check"><input id="edit-enhance" type="checkbox"${imageUi.enhance ? " checked" : ""} />Enhance</label>`);
+    if (model.supportsOptimizePromptThinking) bits.push(`<label class="edit-check"><input id="edit-reasoning" type="checkbox"${imageUi.reasoning ? " checked" : ""} />Reasoning</label>`);
+    if (model.supportsTransparentBackground) bits.push(`<label class="edit-check"><input id="edit-transparent" type="checkbox"${imageUi.transparent ? " checked" : ""} />Transparent</label>`);
+    return bits.length ? `<div class="edit-row">${bits.join("")}</div>` : "";
+  }
+
+  function editTools(model) {
+    if (!model || !(model.supportsDoodle || model.supportsMaskedInpaint)) return "";
+    const draw = model.supportsDoodle ? `<button type="button" data-edit-tool="doodle" class="${imageUi.tool === "doodle" ? "is-on" : ""}">Draw</button>` : "";
+    const mask = model.supportsMaskedInpaint ? `<button type="button" data-edit-tool="mask" class="${imageUi.tool === "mask" ? "is-on" : ""}">Mask</button>` : "";
+    const ink = imageUi.tool === "doodle" && model.supportsDoodle ? `<label class="edit-color">Ink<input id="edit-ink" type="color" value="${esc(imageUi.color)}" aria-label="Ink color" /></label>` : "";
+    return `<div class="edit-float">${draw}${mask}<label class="edit-brush">Brush<input id="edit-brush" type="range" min="8" max="96" step="2" value="${Number(imageUi.brush) || 28}" aria-label="Brush size" /></label>${ink}<button type="button" id="edit-clear">Clear</button></div>`;
+  }
+
+  function editGallery() {
+    const items = imageUi.results;
+    const n = items.length;
+    return `<div class="gen-gallery n-${Math.min(4, n)}">
+      <div class="gen-toolbar">
+        <span>${imageUi.busy ? esc(imageUi.status) : ""}</span>
+        <span class="gen-actions">
+          <button type="button" id="edit-show-source">Source</button>
+          <button type="button" id="edit-clear-result">Clear</button>
+        </span>
+      </div>
+      ${items.map((item, i) => `
+        <figure class="gen-card">
+          <img src="${esc(item.url)}" alt="Edited image ${i + 1}" />
+          <div class="gen-actions">
+            <a class="gen-download" href="${esc(item.url)}" download="${esc(item.name)}">Download</a>
+            <button type="button" data-edit-use="${i}" aria-label="Use as source">Use</button>
+            <button type="button" data-edit-clear="${i}">Clear</button>
+          </div>
+        </figure>`).join("")}
+    </div>`;
+  }
+
+  function editStage() {
+    if (imageUi.view === "result" && imageUi.results.length) return editGallery();
+    if (imageUi.busy) {
+      return `<div class="music-empty"><p class="sub">${esc(imageUi.status || "Editing…")}</p></div>`;
+    }
+    const src = activeSource();
+    if (!src) {
+      return `<div class="music-empty">
+        <p class="sub${imageUi.tone === "error" ? " error" : ""}">${esc(imageUi.status)}</p>
+        <button type="button" class="btn-primary edit-pick" data-edit-pick>Choose image</button>
+      </div>`;
+    }
+    const err = imageUi.tone === "error" ? `<p class="sub error edit-status">${esc(imageUi.status)}</p>` : "";
+    return `<div class="edit-result">${err}${editTools(editModel())}<div class="edit-frame"><img id="edit-photo" alt="" src="${esc(src.url)}" /><canvas id="edit-canvas"></canvas><button type="button" class="edit-x" id="edit-remove" aria-label="Clear image">×</button></div></div>`;
+  }
+
+  function sourceStrip() {
+    const thumbs = imageUi.sources.map((src) => {
+      const on = src.id === (activeSource()?.id) ? " is-on" : "";
+      return `<button type="button" class="edit-thumb${on}" data-edit-source="${esc(src.id)}" aria-label="${esc(src.name)}"><img src="${esc(src.url)}" alt="" /></button>`;
+    }).join("");
+    if (!thumbs) return "";
+    return `${thumbs}<button type="button" class="edit-add" data-edit-pick aria-label="Add image">+</button>`;
+  }
+
+  function editHtml() {
+    const model = editModel();
+    const thinking = model?.supportsMaskedInpaint ? (model.thinkingLevels || []) : [];
+    const options = [
+      choiceBox("edit-aspect", "Aspect", aspectLocked() ? [] : (model?.aspects || []), imageUi.aspect),
+      choiceBox("edit-resolution", "Resolution", model?.resolutions || [], imageUi.resolution),
+      choiceBox("edit-quality", "Quality", model?.qualities || [], imageUi.quality),
+      choiceBox("edit-thinking", "Thinking", thinking, imageUi.thinking),
+      editChecks(model),
+    ].join("");
+    const count = Math.min(4, Math.max(1, Number(imageUi.count) || 1));
+    return `
+      <div class="music-studio" id="edit-root">
+        <section class="music-stage">
+          <div class="gen-stage"><div class="gen-canvas" id="edit-stage">${editStage()}</div></div>
+          <div class="edit-sources">${sourceStrip()}</div>
+        </section>
+        <aside class="inspector music-controls">
+          <div class="inspector-scroll">
+            <div class="select-box">
+              <span>${model ? esc(model.name) : "Model"}</span>
+              <span aria-hidden="true">⌄</span>
+              <select id="edit-model" aria-label="Edit model">${imageUi.models.map((m) => `<option value="${esc(m.id)}"${m.id === imageUi.modelId ? " selected" : ""}>${esc(m.name)}</option>`).join("")}</select>
+            </div>
+            <div class="edit-count" role="group" aria-label="How many images">
+              ${[1, 2, 3, 4].map((n) => `<button type="button" data-edit-count="${n}" class="${n === count ? "is-on" : ""}" aria-pressed="${n === count}">${n}</button>`).join("")}
+            </div>
+            ${options.trim() ? `<details class="edit-more"><summary>Options</summary>${options}</details>` : ""}
+            <textarea id="edit-prompt" class="agent-input" placeholder="What to change">${esc(imageUi.prompt)}</textarea>
+            <input id="edit-file" class="edit-file-ghost" type="file" accept="image/png,image/jpeg,image/webp" multiple />
+          </div>
+          <div class="music-go-bar">
+            <button class="btn-primary" id="edit-go" type="button"${imageUi.busy ? " disabled" : ""}>${imageUi.busy ? "Editing…" : (count > 1 ? `Edit ${count}` : "Edit")}</button>
+          </div>
+        </aside>
+      </div>`;
+  }
+
   function imageHtml() {
-    return window.StudioPanel.render({
-      id: "image",
-      kind: "image",
-      result: "image",
-      title: "Image",
-      emptyTitle: "No image yet",
-      placeholder: "A quiet canal at blue hour, warm windows, film still",
-      promptLabel: "Prompt",
-      button: "Generate image",
-      ready: "Pick an image model. Generation stays in Venice Forge.",
-      foot: "Image models only."
-    });
+    const body = imageUi.mode === "edit"
+      ? editHtml()
+      : window.StudioPanel.render({
+          id: "image",
+          kind: "image",
+          result: "image",
+          title: "Image",
+          emptyTitle: "No image yet",
+          placeholder: "A quiet canal at blue hour, warm windows, film still",
+          promptLabel: "Prompt",
+          button: "Generate image",
+          ready: "Pick an image model. Generation stays in Venice Forge.",
+          foot: "Image models only."
+        });
+    return `<div class="image-screen">${modeTabs()}<div class="image-pane">${body}</div></div>`;
   }
 
   function videoHtml() {
@@ -52,57 +236,65 @@
   /* ============================================================
      MOVIE EDITOR
      ============================================================ */
-  function movieHtml(ctx) {
-    const total = store.movieClips.reduce((sum, c) => sum + (c.len || 0), 0);
+  function fitSize(w, h) {
+    const pixels = Math.max(1, w * h);
+    if (!w || !h || pixels >= 16777216) return "";
+    const scale = Math.min(4, Math.floor(Math.sqrt(16777216 / pixels) * 100) / 100);
+    if (scale < 2) return `${w}×${h}`;
+    return `${Math.round(w * scale)}×${Math.round(h * scale)}`;
+  }
+
+  function movieHtml() {
+    const m = store.movie;
+    const total = Math.min(m.frameCount || 0, 24);
+    const look = Math.max(0, Math.min(m.look || 0, Math.max(total - 1, 0)));
+    const comparing = total && (m.phase === "upscaling" || m.resultKind === "upscale");
+    const thumbs = total
+      ? `<div class="frame-strip">${Array.from({ length: Math.min(total, 12) }, (_, i) =>
+          `<button type="button" class="frame-thumb${i === look ? " is-on" : ""}" data-frame="${i}"><img src="/api/movie/frame?id=${esc(m.id)}&i=${i}&kind=source" alt="Frame ${i + 1}" /></button>`
+        ).join("")}</div>`
+      : "";
+    const before = `<img src="/api/movie/frame?id=${esc(m.id)}&i=${look}&kind=source" alt="Before" />`;
+    const after = look < (m.cleanCount || 0)
+      ? `<img src="/api/movie/frame?id=${esc(m.id)}&i=${look}&kind=clean" alt="After" />`
+      : `<div class="frame-wait">${m.phase === "upscaling" ? "Upscaling…" : "After"}</div>`;
+    const afterLabel = m.outWidth ? `${m.outWidth}×${m.outHeight}` : "After";
+    const beforeLabel = m.width ? `${m.width}×${m.height}` : "Before";
+    const pairs = comparing
+      ? `<div class="frame-compare">
+          <div class="frame-pair">
+            <figure><figcaption>${esc(beforeLabel)}</figcaption>${before}</figure>
+            <figure><figcaption>${esc(afterLabel)}</figcaption>${after}</figure>
+          </div>
+          ${thumbs}
+          ${m.result && m.resultKind === "upscale" ? `<video class="movie-result" src="/api/movie/result?id=${esc(m.id)}" controls playsinline></video>` : ""}
+        </div>`
+      : "";
+    const frames = total
+      ? `<div class="frame-compare"><figure class="frame-solo"><img src="/api/movie/frame?id=${esc(m.id)}&i=${look}&kind=source" alt="Frame ${look + 1}" /></figure>${thumbs}</div>`
+      : `<div class="music-empty"><p class="sub${m.tone === "error" ? " error" : ""}">${esc(m.status)}</p></div>`;
+    const stage = pairs || (m.result
+      ? `<video class="movie-result" src="/api/movie/result?id=${esc(m.id)}" controls playsinline></video>`
+      : frames);
+    const cap = fitSize(m.width, m.height);
+    const size = cap ? `<p class="music-desc">Up to ${esc(cap)}</p>` : "";
     return `
-      <div class="workspace" style="grid-template-columns:1fr 304px">
-        <section class="center">
-          <div class="editor-tabs">
-            <span class="editor-tab active">Timeline</span>
-            <span style="flex:1"></span>
-            <span style="font-size:10px;color:var(--fg-muted);padding-right:12px">1920 × 1080 · 24 fps · Stereo</span>
-          </div>
-          <div class="editor-body">
-            <div style="flex:1;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 40%,#10151f,#0b0f19)">
-              <div class="editor-empty" style="height:auto"><div class="big">Preview</div><div class="sub">Select a clip to preview it here.</div></div>
-            </div>
-            <div style="border-top:1px solid var(--border);background:var(--panel);padding:12px 16px 16px">
-              <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-                <button class="icon-btn" id="m-play" aria-label="Play timeline" title="Play">▶</button>
-                <button class="icon-btn" id="m-stop" title="Stop">■</button>
-                <span style="font-family:var(--font-mono);font-size:10px;color:var(--fg-muted)">00:00:00</span>
-                <span style="flex:1"></span>
-                <span style="font-size:10px;color:var(--fg-muted)">${store.movieClips.length} clips · ${total}s</span>
-              </div>
-              <div style="display:flex;flex-direction:column;gap:4px;position:relative">
-                <div style="position:absolute;top:0;bottom:0;left:47%;width:1px;background:var(--accent);opacity:.6"></div>
-                ${["V1", "V2", "A1"].map((track) => `
-                  <div style="display:flex;align-items:center;gap:10px;height:34px">
-                    <span style="width:32px;font-size:9px;font-weight:600;color:var(--fg-muted)">${track}</span>
-                    <div style="flex:1;position:relative;height:24px;background:var(--panel-raised);border-radius:4px">
-                      ${store.movieClips.filter((c) => c.track === track).map((c) => `
-                        <div class="clip" data-clip="${c.id}" style="position:absolute;left:${(c.start / total) * 100}%;width:${(c.len / total) * 100}%;top:3px;bottom:3px;background:${c.color};border-radius:3px;cursor:pointer;opacity:.85" aria-label="${c.name} clip"></div>`).join("")}
-                    </div>
-                  </div>`).join("")}
-              </div>
-            </div>
-          </div>
+      <div class="music-studio" id="movie-root">
+        <section class="music-stage">
+          <div class="gen-stage"><div class="gen-canvas" id="movie-stage">${stage}</div></div>
         </section>
-        <aside class="inspector">
-          <div class="panel-head"><span class="panel-title">Inspector</span></div>
+        <aside class="inspector music-controls">
           <div class="inspector-scroll">
-            <div class="field-label">Clip</div>
-            <div id="clip-props">
-              ${(() => { const c = store.movieClips[0]; return `
-                <div class="kv"><span class="k">Name</span><span class="v">${esc(c.name)}</span></div>
-                <div class="kv"><span class="k">Track</span><span class="v">${esc(c.track)}</span></div>
-                <div class="kv"><span class="k">Start</span><span class="v">${c.start}s</span></div>
-                <div class="kv"><span class="k">Length</span><span class="v">${c.len}s</span></div>`; })()}
-            </div>
-            <div class="field-label">Transition</div>
-            <div class="select-box"><span>Cross dissolve</span><span style="color:var(--fg-muted)">⌄</span></div>
-            <div class="field-label">Export</div>
-            <button class="btn-primary">Export movie</button>
+            <button type="button" class="edit-file" id="movie-pick"><span>${m.name ? esc(m.name) : "Choose video"}</span></button>
+            <input id="movie-file" class="edit-file-ghost" type="file" accept="video/mp4,video/webm,video/quicktime" />
+            <label class="edit-check"><input id="movie-nsfw" type="checkbox"${m.nsfw ? " checked" : ""}${m.busy ? " disabled" : ""} />NSFW</label>
+            ${size}
+            <p class="sub${m.tone === "error" ? " error" : ""}" id="movie-status">${esc(m.status)}</p>
+          </div>
+          <div class="music-go-bar movie-actions">
+            <button class="btn-primary" id="movie-upscale" type="button"${m.busy || !m.id ? " disabled" : ""}>${m.phase === "upscaling" ? "Upscaling…" : "Upscale"}</button>
+            <button class="btn-ghost" id="movie-pixel" type="button"${m.busy || !m.id ? " disabled" : ""}>${m.phase === "depixel" ? "Cleaning…" : "Remove pixelation"}</button>
+            ${m.result ? `<a class="gen-download" href="/api/movie/result?id=${esc(m.id)}" download="${esc((m.name || "video").replace(/\.\w+$/, ""))}-${m.resultKind === "pixel" ? "clean" : "upscale"}.mp4">Download</a>` : ""}
           </div>
         </aside>
       </div>`;
@@ -511,26 +703,593 @@
   /* ============================================================
      wiring
      ============================================================ */
-  function wireImage() {
-    window.StudioPanel.wire({ id: "image", kind: "image", result: "image", ready: "Pick an image model. Generation stays in Venice Forge." });
+  function wireImage(ctx) {
+    document.querySelectorAll("[data-image-mode]").forEach((btn) => {
+      btn.onclick = () => {
+        const mode = btn.dataset.imageMode === "edit" ? "edit" : "create";
+        if (imageUi.mode === mode) return;
+        captureEdit();
+        imageUi.mode = mode;
+        rerender(ctx);
+      };
+    });
+    if (imageUi.mode === "edit") wireEdit(ctx);
+    else window.StudioPanel.wire({ id: "image", kind: "image", result: "image", ready: "Pick an image model. Generation stays in Venice Forge." });
+  }
+
+  function captureEdit() {
+    const prompt = document.getElementById("edit-prompt");
+    if (prompt) imageUi.prompt = prompt.value;
+    const enhance = document.getElementById("edit-enhance");
+    if (enhance) imageUi.enhance = enhance.checked;
+    const reasoning = document.getElementById("edit-reasoning");
+    if (reasoning) imageUi.reasoning = reasoning.checked;
+    const transparent = document.getElementById("edit-transparent");
+    if (transparent) imageUi.transparent = transparent.checked;
+  }
+
+  function applyEditDefaults(model) {
+    if (!model) return;
+    if (!model.aspects?.includes(imageUi.aspect)) imageUi.aspect = model.defaultAspect || model.aspects?.[0] || "";
+    if (!model.resolutions?.includes(imageUi.resolution)) imageUi.resolution = model.defaultResolution || model.resolutions?.[0] || "";
+    if (!(model.qualities || []).includes(imageUi.quality)) imageUi.quality = model.defaultQuality || (model.qualities || [])[0] || "";
+    if (!(model.thinkingLevels || []).includes(imageUi.thinking)) imageUi.thinking = model.defaultThinking || (model.thinkingLevels || [])[0] || "";
+    if (imageUi.tool === "mask" && !model.supportsMaskedInpaint) imageUi.tool = "doodle";
+    if (imageUi.tool === "doodle" && !model.supportsDoodle && model.supportsMaskedInpaint) imageUi.tool = "mask";
+  }
+
+  async function ensureEditModels(ctx) {
+    if (imageUi.models.length || imageUi.editTried) return;
+    imageUi.editTried = true;
+    try {
+      const res = await fetch("/api/studio/models?kind=edit");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !Array.isArray(data.models) || !data.models.length) {
+        throw new Error(data.message || data.error || "Venice did not return edit models.");
+      }
+      imageUi.models = data.models;
+      if (!imageUi.models.some((m) => m.id === imageUi.modelId)) imageUi.modelId = imageUi.models[0].id;
+      applyEditDefaults(editModel());
+      imageUi.tone = "";
+    } catch (err) {
+      imageUi.status = err.message || "Could not load edit models.";
+      imageUi.tone = "error";
+    }
+    if (imageUi.mode === "edit" && ctx.state.tab === "Image Gen") rerender(ctx);
+  }
+
+  function drawStroke(ctx2d, stroke, w, h, mask) {
+    if (!stroke.points?.length) return;
+    ctx2d.save();
+    ctx2d.lineCap = "round";
+    ctx2d.lineJoin = "round";
+    ctx2d.strokeStyle = mask ? "#fff" : (stroke.color || "#e85d4c");
+    ctx2d.fillStyle = ctx2d.strokeStyle;
+    ctx2d.lineWidth = Math.max(2, (Number(stroke.width) || 0.02) * w);
+    ctx2d.beginPath();
+    stroke.points.forEach((p, i) => {
+      const x = p.x * w;
+      const y = p.y * h;
+      if (i === 0) ctx2d.moveTo(x, y);
+      else ctx2d.lineTo(x, y);
+    });
+    if (stroke.points.length === 1) {
+      const p = stroke.points[0];
+      ctx2d.arc(p.x * w, p.y * h, ctx2d.lineWidth / 2, 0, Math.PI * 2);
+      ctx2d.fill();
+    } else ctx2d.stroke();
+    ctx2d.restore();
+  }
+
+  function redrawMarks() {
+    const canvas = document.getElementById("edit-canvas");
+    const img = document.getElementById("edit-photo");
+    const src = activeSource();
+    if (!canvas || !img || !src) return;
+    const w = Math.max(1, Math.round(img.clientWidth));
+    const h = Math.max(1, Math.round(img.clientHeight));
+    canvas.width = w;
+    canvas.height = h;
+    canvas.style.width = w + "px";
+    canvas.style.height = h + "px";
+    const g = canvas.getContext("2d");
+    g.clearRect(0, 0, w, h);
+    const pack = marksFor(src.id);
+    const list = imageUi.tool === "mask" ? pack.mask : pack.doodle;
+    g.globalAlpha = imageUi.tool === "mask" ? 0.45 : 1;
+    for (const stroke of list) drawStroke(g, stroke, w, h, imageUi.tool === "mask");
+    g.globalAlpha = 1;
+  }
+
+  function fitCanvas() {
+    const img = document.getElementById("edit-photo");
+    if (!img) return;
+    if (!img.complete) {
+      img.onload = () => redrawMarks();
+      return;
+    }
+    redrawMarks();
+  }
+
+  function canvasBlob(canvas, type, quality) {
+    return new Promise((resolve) => canvas.toBlob(resolve, type, quality));
+  }
+
+  function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      if (!blob) { reject(new Error("That image could not be read.")); return; }
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error("That image could not be read."));
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  function loadImage(url) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error("That image could not be read."));
+      img.src = url;
+    });
+  }
+
+  async function fileToSource(file) {
+    if (!/^image\/(png|jpeg|webp)$/.test(file.type || "")) throw new Error("Use a PNG, JPEG, or WebP.");
+    const raw = await blobToDataUrl(file);
+    const img = await loadImage(raw);
+    if (img.width < 64 || img.height < 64) throw new Error("Each side of the image needs to be at least 64 pixels.");
+    const scale = Math.min(1, 2048 / Math.max(img.width, img.height));
+    const w = Math.max(1, Math.round(img.width * scale));
+    const h = Math.max(1, Math.round(img.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+    const url = await blobToDataUrl(await canvasBlob(canvas, "image/jpeg", 0.92));
+    return { id: "s" + Math.random().toString(36).slice(2, 10), name: file.name || "Image", url };
+  }
+
+  async function rasterSource(src) {
+    const img = await loadImage(src.url);
+    const w = img.naturalWidth || img.width;
+    const h = img.naturalHeight || img.height;
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const g = canvas.getContext("2d");
+    g.drawImage(img, 0, 0, w, h);
+    const pack = marksFor(src.id);
+    if (editModel()?.supportsDoodle) {
+      for (const stroke of pack.doodle) drawStroke(g, stroke, w, h, false);
+    }
+    const image = await blobToDataUrl(await canvasBlob(canvas, "image/jpeg", 0.92));
+    let mask = "";
+    if (editModel()?.supportsMaskedInpaint && pack.mask.length) {
+      const maskCanvas = document.createElement("canvas");
+      maskCanvas.width = w;
+      maskCanvas.height = h;
+      const mg = maskCanvas.getContext("2d");
+      mg.fillStyle = "#000";
+      mg.fillRect(0, 0, w, h);
+      for (const stroke of pack.mask) drawStroke(mg, stroke, w, h, true);
+      mask = await blobToDataUrl(await canvasBlob(maskCanvas, "image/png"));
+    }
+    return { image, mask };
+  }
+
+  async function editImage(ctx) {
+    if (imageUi.busy) return;
+    captureEdit();
+    const prompt = imageUi.prompt.trim();
+    if (!prompt) { ctx.notify?.("Say what to change."); return; }
+    if (!imageUi.sources.length) { ctx.notify?.("Add an image first."); return; }
+    const model = editModel();
+    if (!model) { ctx.notify?.("Pick an edit model first."); return; }
+    const doodle = imageUi.sources.some((s) => marksFor(s.id).doodle.length);
+    const masked = imageUi.sources.some((s) => marksFor(s.id).mask.length);
+    if (doodle && !model.supportsDoodle) { ctx.notify?.("This model does not take a drawing. Clear it, or pick a model that does."); return; }
+    if (masked && !model.supportsMaskedInpaint) { ctx.notify?.("This model does not take a mask. Clear it, or pick a model that does."); return; }
+    imageUi.busy = true;
+    imageUi.tone = "";
+    imageUi.view = "source";
+    const count = Math.min(4, Math.max(1, Number(imageUi.count) || 1));
+    for (const old of imageUi.results) if (old?.url) URL.revokeObjectURL(old.url);
+    imageUi.results = [];
+    imageUi.resultUrl = "";
+    imageUi.status = count === 1 ? `Editing with ${model.name}…` : `Editing 1 of ${count}…`;
+    rerender(ctx);
+    const made = [];
+    try {
+      const rasters = [];
+      for (const src of imageUi.sources) rasters.push(await rasterSource(src));
+      const activeIndex = Math.max(0, imageUi.sources.findIndex((s) => s.id === activeSource()?.id));
+      const body = {
+        kind: "edit",
+        modelId: imageUi.modelId,
+        prompt,
+        aspectRatio: aspectLocked() ? "auto" : imageUi.aspect,
+        resolution: imageUi.resolution,
+        quality: imageUi.quality,
+        enhance: model.hasBuiltInPromptEnhancer ? false : imageUi.enhance === true,
+        reasoning: imageUi.reasoning === true,
+        transparent: imageUi.transparent === true,
+        images: rasters.map((r) => r.image),
+      };
+      if (model.supportsMaskedInpaint && rasters[activeIndex]?.mask) {
+        body.mask = rasters[activeIndex].mask;
+        body.thinkingLevel = imageUi.thinking;
+      }
+      for (let i = 0; i < count; i += 1) {
+        imageUi.status = count === 1 ? `Editing with ${model.name}…` : `Editing ${i + 1} of ${count}…`;
+        if (ctx.state.tab === "Image Gen" && imageUi.mode === "edit") rerender(ctx);
+        const res = await fetch("/api/studio/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const type = res.headers.get("content-type") || "";
+        if (!res.ok || type.includes("json") || type.includes("text/html")) {
+          const data = await res.json().catch(() => ({}));
+          const message = data.message || data.error || "The model did not return anything.";
+          if (!made.length) throw new Error(message);
+          imageUi.status = `${made.length} finished. ${message}`;
+          imageUi.tone = "";
+          break;
+        }
+        const blob = await res.blob();
+        if (!blob.size) {
+          if (!made.length) throw new Error("Venice returned an empty edit.");
+          imageUi.status = `${made.length} finished. Venice returned an empty edit.`;
+          break;
+        }
+        const kind = blob.type || type;
+        const ext = kind.includes("jpeg") ? "jpg" : kind.includes("webp") ? "webp" : "png";
+        made.push({
+          url: URL.createObjectURL(blob),
+          name: `${model.id || "venice-edit"}-${i + 1}.${ext}`,
+        });
+        imageUi.results = made.slice();
+        imageUi.resultUrl = made[0].url;
+        imageUi.resultName = made[0].name;
+        imageUi.view = "result";
+        imageUi.tone = "";
+        imageUi.status = made.length === count
+          ? (count === 1 ? `${model.name} finished inside Venice Forge.` : `${count} edits finished inside Venice Forge.`)
+          : `${made.length} of ${count} ready.`;
+      }
+    } catch (err) {
+      imageUi.status = err?.message || "The model did not return anything.";
+      imageUi.tone = "error";
+      imageUi.view = made.length ? "result" : "source";
+    } finally {
+      imageUi.busy = false;
+      if (ctx.state.tab === "Image Gen" && imageUi.mode === "edit") rerender(ctx);
+    }
+  }
+
+  function bindEditPointer() {
+    const canvas = document.getElementById("edit-canvas");
+    if (!canvas) return;
+    let drawing = null;
+    const point = (e) => {
+      const r = canvas.getBoundingClientRect();
+      return {
+        x: Math.min(1, Math.max(0, (e.clientX - r.left) / Math.max(1, r.width))),
+        y: Math.min(1, Math.max(0, (e.clientY - r.top) / Math.max(1, r.height))),
+      };
+    };
+    const down = (e) => {
+      if (!activeSource()) return;
+      const model = editModel();
+      const tool = imageUi.tool === "mask" && model?.supportsMaskedInpaint ? "mask" : "doodle";
+      if (tool === "doodle" && !model?.supportsDoodle) return;
+      if (tool === "mask" && !model?.supportsMaskedInpaint) return;
+      canvas.setPointerCapture?.(e.pointerId);
+      const pack = marksFor(activeSource().id);
+      const stroke = {
+        color: imageUi.color,
+        width: (Number(imageUi.brush) || 28) / Math.max(1, canvas.getBoundingClientRect().width),
+        points: [point(e)],
+      };
+      (tool === "mask" ? pack.mask : pack.doodle).push(stroke);
+      drawing = stroke;
+      redrawMarks();
+    };
+    const move = (e) => {
+      if (!drawing) return;
+      drawing.points.push(point(e));
+      redrawMarks();
+    };
+    const up = () => { drawing = null; };
+    canvas.onpointerdown = down;
+    canvas.onpointermove = move;
+    canvas.onpointerup = up;
+    canvas.onpointercancel = up;
+  }
+
+  function wireEdit(ctx) {
+    ensureEditModels(ctx);
+    const modelSelect = document.getElementById("edit-model");
+    if (modelSelect) modelSelect.onchange = () => {
+      captureEdit();
+      imageUi.modelId = modelSelect.value;
+      applyEditDefaults(editModel());
+      rerender(ctx);
+    };
+    for (const [id, key] of [["edit-aspect", "aspect"], ["edit-resolution", "resolution"], ["edit-quality", "quality"], ["edit-thinking", "thinking"]]) {
+      const el = document.getElementById(id);
+      if (el) el.onchange = () => {
+        imageUi[key] = el.value;
+        const label = el.parentElement?.querySelector("span");
+        if (label) label.textContent = el.selectedOptions?.[0]?.textContent || el.value;
+      };
+    }
+    const prompt = document.getElementById("edit-prompt");
+    if (prompt) prompt.oninput = () => { imageUi.prompt = prompt.value; };
+    const enhance = document.getElementById("edit-enhance");
+    if (enhance) enhance.onchange = () => { imageUi.enhance = enhance.checked; };
+    const reasoning = document.getElementById("edit-reasoning");
+    if (reasoning) reasoning.onchange = () => { imageUi.reasoning = reasoning.checked; };
+    const transparent = document.getElementById("edit-transparent");
+    if (transparent) transparent.onchange = () => { imageUi.transparent = transparent.checked; };
+    const ink = document.getElementById("edit-ink");
+    if (ink) ink.oninput = () => { imageUi.color = ink.value; };
+    const brush = document.getElementById("edit-brush");
+    if (brush) brush.oninput = () => { imageUi.brush = Number(brush.value) || 28; };
+    document.querySelectorAll("[data-edit-tool]").forEach((btn) => {
+      btn.onclick = () => {
+        imageUi.tool = btn.dataset.editTool === "mask" ? "mask" : "doodle";
+        captureEdit();
+        rerender(ctx);
+      };
+    });
+    const clear = document.getElementById("edit-clear");
+    if (clear) clear.onclick = () => {
+      const src = activeSource();
+      if (!src) return;
+      const pack = marksFor(src.id);
+      if (imageUi.tool === "mask") pack.mask = [];
+      else pack.doodle = [];
+      redrawMarks();
+    };
+    document.querySelectorAll("[data-edit-source]").forEach((btn) => {
+      btn.onclick = () => {
+        imageUi.activeId = btn.dataset.editSource;
+        imageUi.view = "source";
+        captureEdit();
+        rerender(ctx);
+      };
+    });
+    document.querySelectorAll("[data-edit-pick]").forEach((btn) => {
+      btn.onclick = () => document.getElementById("edit-file")?.click();
+    });
+    const file = document.getElementById("edit-file");
+    if (file) file.onchange = async () => {
+      const files = Array.from(file.files || []);
+      file.value = "";
+      const max = editModel()?.maxInputImages || 4;
+      for (const item of files) {
+        if (imageUi.sources.length >= max) {
+          ctx.notify?.(`This model accepts ${max} image${max === 1 ? "" : "s"}.`);
+          break;
+        }
+        try {
+          const src = await fileToSource(item);
+          imageUi.sources.push(src);
+          imageUi.activeId = src.id;
+          imageUi.view = "source";
+          imageUi.tone = "";
+          imageUi.status = "Add an image, then say what to change. The edit stays in this studio.";
+        } catch (err) {
+          ctx.notify?.(err?.message || "That image could not be read.");
+        }
+      }
+      captureEdit();
+      rerender(ctx);
+    };
+    document.querySelectorAll("[data-edit-count]").forEach((btn) => {
+      btn.onclick = () => {
+        imageUi.count = Math.min(4, Math.max(1, Number(btn.dataset.editCount) || 1));
+        document.querySelectorAll("[data-edit-count]").forEach((b) => {
+          const on = Number(b.dataset.editCount) === imageUi.count;
+          b.classList.toggle("is-on", on);
+          b.setAttribute("aria-pressed", on ? "true" : "false");
+        });
+        const goBtn = document.getElementById("edit-go");
+        if (goBtn && !imageUi.busy) goBtn.textContent = imageUi.count > 1 ? `Edit ${imageUi.count}` : "Edit";
+      };
+    });
+    const go = document.getElementById("edit-go");
+    if (go) go.onclick = () => editImage(ctx);
+    if (prompt) prompt.onkeydown = (e) => {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); editImage(ctx); }
+    };
+    const show = document.getElementById("edit-show-source");
+    if (show) show.onclick = () => { imageUi.view = "source"; rerender(ctx); };
+    const clearResult = document.getElementById("edit-clear-result");
+    if (clearResult) clearResult.onclick = () => {
+      for (const item of imageUi.results) if (item?.url) URL.revokeObjectURL(item.url);
+      imageUi.results = [];
+      imageUi.resultUrl = "";
+      imageUi.resultName = "venice-edit.png";
+      imageUi.view = "source";
+      imageUi.tone = "";
+      imageUi.status = imageUi.sources.length
+        ? "Cleared the edit. The source image is still here."
+        : "Add an image, then say what to change. The edit stays in this studio.";
+      rerender(ctx);
+    };
+    document.querySelectorAll("[data-edit-clear]").forEach((btn) => {
+      btn.onclick = () => {
+        const index = Number(btn.dataset.editClear);
+        const gone = imageUi.results[index];
+        if (gone?.url) URL.revokeObjectURL(gone.url);
+        imageUi.results.splice(index, 1);
+        imageUi.resultUrl = imageUi.results[0]?.url || "";
+        imageUi.resultName = imageUi.results[0]?.name || "venice-edit.png";
+        if (!imageUi.results.length) {
+          imageUi.view = "source";
+          imageUi.status = "Cleared the edit. The source image is still here.";
+        }
+        rerender(ctx);
+      };
+    });
+    const remove = document.getElementById("edit-remove");
+    if (remove) remove.onclick = () => {
+      const src = activeSource();
+      if (!src) return;
+      imageUi.sources = imageUi.sources.filter((s) => s.id !== src.id);
+      delete imageUi.marks[src.id];
+      imageUi.activeId = imageUi.sources[0]?.id || null;
+      imageUi.view = "source";
+      imageUi.tone = "";
+      imageUi.status = imageUi.sources.length
+        ? "Image removed."
+        : "Add an image, then say what to change. The edit stays in this studio.";
+      rerender(ctx);
+    };
+    document.querySelectorAll("[data-edit-use]").forEach((btn) => {
+      btn.onclick = async () => {
+        const item = imageUi.results[Number(btn.dataset.editUse)];
+        if (!item?.url) return;
+        const max = editModel()?.maxInputImages || 4;
+        if (imageUi.sources.length >= max) {
+          ctx.notify?.(`This model accepts ${max} image${max === 1 ? "" : "s"}.`);
+          return;
+        }
+        try {
+          const res = await fetch(item.url);
+          const src = await fileToSource(new File([await res.blob()], item.name || "edit.png", { type: res.headers.get("content-type") || "image/png" }));
+          imageUi.sources.push(src);
+          imageUi.activeId = src.id;
+          imageUi.view = "source";
+          rerender(ctx);
+        } catch (err) {
+          ctx.notify?.(err?.message || "That image could not be used.");
+        }
+      };
+    });
+    fitCanvas();
+    bindEditPointer();
   }
 
   function wireVideo() {
     window.StudioPanel.wire({ id: "video", kind: "video", result: "video", ready: "Text-to-video models only. Generation stays in Venice Forge." });
   }
 
+  function applyMovie(data) {
+    const m = store.movie;
+    m.id = data.id || m.id;
+    m.name = data.name || m.name;
+    m.frameCount = data.frameCount || 0;
+    m.cleanCount = data.cleanCount || 0;
+    m.scale = data.scale === "2x" ? "2x" : (data.scale || m.scale);
+    m.phase = data.phase || "";
+    m.status = data.status || m.status;
+    m.tone = data.tone || "";
+    m.result = !!data.result;
+    m.resultKind = data.resultKind || "";
+    m.duration = data.duration || 0;
+    m.fps = data.fps || 0;
+    m.width = data.width || m.width || 0;
+    m.height = data.height || m.height || 0;
+    m.outWidth = data.outWidth || 0;
+    m.outHeight = data.outHeight || 0;
+    m.busy = data.phase === "upscaling" || data.phase === "depixel";
+  }
+
+  function pollMovie(ctx) {
+    const m = store.movie;
+    if (!m.id || !m.busy) return;
+    clearTimeout(m.timer);
+    m.timer = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/movie/status?id=" + encodeURIComponent(m.id));
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) applyMovie(data);
+      } catch {}
+      if (ctx.state.tab === "Movie Editor") rerender(ctx);
+      if (store.movie.busy) pollMovie(ctx);
+    }, 1500);
+  }
+
   function wireMovie(ctx) {
-    document.querySelectorAll("[data-clip]").forEach((n) => n.onclick = () => {
-      const c = store.movieClips.find((x) => x.id === +n.dataset.clip);
-      const props = document.querySelector("#clip-props");
-      if (c && props) props.innerHTML = `
-        <div class="kv"><span class="k">Name</span><span class="v">${esc(c.name)}</span></div>
-        <div class="kv"><span class="k">Track</span><span class="v">${esc(c.track)}</span></div>
-        <div class="kv"><span class="k">Start</span><span class="v">${c.start}s</span></div>
-        <div class="kv"><span class="k">Length</span><span class="v">${c.len}s</span></div>`;
+    const m = store.movie;
+    const file = document.getElementById("movie-file");
+    const pick = document.getElementById("movie-pick");
+    if (pick) pick.onclick = () => file?.click();
+    if (file) file.onchange = async () => {
+      const item = file.files?.[0];
+      file.value = "";
+      if (!item) return;
+      m.busy = true;
+      m.status = "Splitting frames…";
+      m.tone = "";
+      m.result = false;
+      m.look = 0;
+      m.outWidth = 0;
+      m.outHeight = 0;
+      m.name = item.name;
+      rerender(ctx);
+      try {
+        const res = await fetch("/api/movie/open?name=" + encodeURIComponent(item.name), {
+          method: "POST",
+          headers: { "Content-Type": item.type || "video/mp4" },
+          body: item,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.message || data.error || "That video could not be opened.");
+        applyMovie(data);
+      } catch (err) {
+        m.busy = false;
+        m.tone = "error";
+        m.status = err?.message || "That video could not be opened.";
+      }
+      if (ctx.state.tab === "Movie Editor") rerender(ctx);
+    };
+    document.querySelectorAll("[data-frame]").forEach((btn) => {
+      btn.onclick = () => {
+        m.look = Number(btn.dataset.frame) || 0;
+        rerender(ctx);
+      };
     });
-    const play = document.querySelector("#m-play");
-    if (play) play.onclick = () => ctx.notify("This timeline is a cut list. Playback isn’t available yet.");
+    const nsfw = document.getElementById("movie-nsfw");
+    if (nsfw) nsfw.onchange = () => {
+      if (m.busy) return;
+      m.nsfw = nsfw.checked;
+      rerender(ctx);
+    };
+    const run = (action) => {
+      if (!m.id || m.busy) return;
+      m.busy = true;
+      m.phase = action === "pixel" ? "depixel" : "upscaling";
+      m.tone = "";
+      m.status = action === "pixel" ? "Removing pixelation…" : "Starting the upscale…";
+      rerender(ctx);
+      fetch("/api/movie/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: m.id, action, scale: m.scale, nsfw: !!m.nsfw }),
+      }).then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.message || data.error || "Venice did not start.");
+        applyMovie(data);
+        if (ctx.state.tab === "Movie Editor") rerender(ctx);
+        pollMovie(ctx);
+      }).catch((err) => {
+        m.busy = false;
+        m.phase = "ready";
+        m.tone = "error";
+        m.status = err?.message || "Venice did not start.";
+        if (ctx.state.tab === "Movie Editor") rerender(ctx);
+      });
+    };
+    const up = document.getElementById("movie-upscale");
+    const pixel = document.getElementById("movie-pixel");
+    if (up) up.onclick = () => run("upscale");
+    if (pixel) pixel.onclick = () => run("pixel");
+    if (m.busy) pollMovie(ctx);
   }
 
   function wireAudio() {

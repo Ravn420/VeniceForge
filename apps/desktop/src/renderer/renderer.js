@@ -93,6 +93,22 @@ function renderNav() {
         </button>
         <div class="settings-panel" id="settings-panel">
           <div class="setting-item">
+            <span class="setting-label">Venice</span>
+            <span class="setting-value" id="venice-status">Checking…</span>
+          </div>
+          <p class="setting-note" id="venice-note">Checking for a Venice session.</p>
+          <button type="button" class="btn-primary" id="venice-login">Continue with Google</button>
+          <details class="signin-more">
+            <summary>Other ways to sign in</summary>
+            <section class="api-login" aria-label="Web session">
+              <div class="api-login-title">Web session</div>
+              <p class="setting-note">Only if Google is not signed in. Used for web-app models.</p>
+              <label class="setting-label venice-key-label" for="venice-web-session">Session</label>
+              <input id="venice-web-session" class="venice-keys" type="password" autocomplete="off" placeholder="Paste session" />
+              <button type="button" class="btn-primary" id="venice-web-save">Use session</button>
+            </section>
+          </details>
+          <div class="setting-item">
             <span class="setting-label">Generations</span>
             <span class="setting-value">In this studio</span>
           </div>
@@ -105,10 +121,246 @@ function renderNav() {
     </div>
     <div class="screen" id="screen"></div>
     <div class="statusbar" id="statusbar"></div>
+    <div id="venice-browser" class="venice-browser"${veniceAccount.browserOpen ? "" : " hidden"}>
+      <div class="venice-browser-card" id="venice-browser-card">
+        <div class="panel-head">
+          <span class="panel-title">Sign in with Google</span>
+          <button type="button" id="venice-browser-close">Close</button>
+        </div>
+        <p class="setting-note" id="venice-browser-note">Opening Google…</p>
+        <div class="venice-frame-wrap">
+          <p class="venice-frame-wait" id="venice-frame-wait">Opening Google…</p>
+          <img id="venice-frame" alt="Google sign-in" />
+        </div>
+        <div class="venice-signin-bar">
+          <input id="venice-keys" type="text" placeholder="Email, password, or code, then Enter" autocomplete="off" />
+          <button type="button" id="venice-google">Google</button>
+          <button type="button" id="venice-google-passkey">Passkey</button>
+          <button type="button" id="venice-browser-back">Back</button>
+        </div>
+      </div>
+    </div>
   `;
 }
 
 let settingsCloserBound = false;
+const veniceAccount = {
+  checking: true,
+  signedIn: false,
+  opening: false,
+  browserOpen: false,
+  web: false,
+  status: "Checking…",
+  note: "Checking for a Venice session.",
+  poll: 0,
+};
+
+function paintVenice() {
+  const status = $("#venice-status");
+  const note = $("#venice-note");
+  const button = $("#venice-login");
+  if (status) status.textContent = veniceAccount.status;
+  if (note) note.textContent = veniceAccount.note;
+  if (button) {
+    button.disabled = veniceAccount.opening;
+    button.textContent = veniceAccount.opening
+      ? "Opening Google…"
+      : "Continue with Google";
+  }
+}
+
+async function refreshVenice() {
+  veniceAccount.checking = true;
+  paintVenice();
+  try {
+    const res = await fetch("/api/venice/session");
+    const data = await res.json();
+    veniceAccount.signedIn = !!data.signedIn;
+    veniceAccount.web = !!data.web;
+    veniceAccount.status = data.signedIn ? "Signed in" : "Not signed in";
+    const who = data.email || data.name || "";
+    if (data.web) {
+      veniceAccount.note = `Signed in${who ? " as " + who : ""}.`;
+    } else if (data.signedIn) {
+      veniceAccount.note = `Signed in${who ? " as " + who : ""}.`;
+    } else {
+      veniceAccount.note = "Continue with Google. Sign-in stays in this studio.";
+    }
+    return data;
+  } catch {
+    veniceAccount.signedIn = false;
+    veniceAccount.status = "Not signed in";
+    veniceAccount.note = "Could not check the browser session.";
+    return { signedIn: false };
+  } finally {
+    veniceAccount.checking = false;
+    paintVenice();
+  }
+}
+
+function showVeniceBrowser(open) {
+  const modal = $("#venice-browser");
+  if (!modal) return;
+  modal.hidden = !open;
+  veniceAccount.browserOpen = open;
+}
+
+async function browserCommand(body) {
+  try {
+    const res = await fetch("/api/venice/browser/input", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    const note = $("#venice-browser-note");
+    if (note && data.message) {
+      note.dataset.lock = "1";
+      note.textContent = data.message;
+    }
+  } catch { /* the next frame will show where the page is */ }
+}
+
+function watchVeniceBrowser() {
+  const token = ++veniceAccount.poll;
+  const tick = async () => {
+    if (!veniceAccount.browserOpen || token !== veniceAccount.poll) return;
+    try {
+      const sessionRes = await fetch("/api/venice/session");
+      const session = await sessionRes.json().catch(() => ({}));
+      if (token !== veniceAccount.poll || !veniceAccount.browserOpen) return;
+      if (session.web) {
+        showVeniceBrowser(false);
+        veniceAccount.opening = false;
+        await refreshVenice();
+        return;
+      }
+      const res = await fetch("/api/venice/browser/frame.jpg?t=" + Date.now());
+      if (token !== veniceAccount.poll) return;
+      const host = res.headers.get("x-venice-page") || "";
+      if (host && host !== "venice.ai" && !host.endsWith(".venice.ai")) veniceAccount.sawLogin = true;
+      const note = $("#venice-browser-note");
+      const google = $("#venice-google");
+      if (google) google.hidden = host === "accounts.google.com";
+      if (note && !note.dataset.lock) {
+        note.textContent = host === "accounts.google.com"
+          ? "Click the page, or type below and press Enter. Passkey shows a code to scan with your phone."
+          : "Opening Google. The page stays in this window.";
+      }
+      const blob = await res.blob();
+      const img = $("#venice-frame");
+      const wait = $("#venice-frame-wait");
+      if (img && blob.size) {
+        const next = URL.createObjectURL(blob);
+        const prev = img.src;
+        img.src = next;
+        if (prev.startsWith("blob:")) URL.revokeObjectURL(prev);
+        if (wait) wait.hidden = true;
+      }
+    } catch { /* keep watching */ }
+    if (veniceAccount.browserOpen && token === veniceAccount.poll) {
+      setTimeout(tick, 800);
+    }
+  };
+  tick();
+}
+
+function wireVeniceBrowser() {
+  const img = $("#venice-frame");
+  const keys = $("#venice-keys");
+  const close = $("#venice-browser-close");
+  const card = $("#venice-browser-card");
+  if (card) card.onclick = (e) => e.stopPropagation();
+  if (close) close.onclick = (e) => {
+    e.stopPropagation();
+    veniceAccount.poll += 1;
+    veniceAccount.opening = false;
+    showVeniceBrowser(false);
+  };
+  const google = $("#venice-google");
+  if (google) google.onclick = (e) => {
+    e.stopPropagation();
+    const note = $("#venice-browser-note");
+    if (note) delete note.dataset.lock;
+    browserCommand({ type: "google" });
+  };
+  const passkey = $("#venice-google-passkey");
+  if (passkey) passkey.onclick = (e) => {
+    e.stopPropagation();
+    browserCommand({ type: "google-passkey", email: $("#venice-keys")?.value || "" });
+  };
+  const back = $("#venice-browser-back");
+  if (back) back.onclick = (e) => {
+    e.stopPropagation();
+    browserCommand({ type: "home" });
+  };
+  if (img) {
+    img.onclick = (e) => {
+      const rect = img.getBoundingClientRect();
+      const naturalW = img.naturalWidth || rect.width;
+      const naturalH = img.naturalHeight || rect.height;
+      if (!rect.width || !rect.height || !naturalW || !naturalH) return;
+      const scale = Math.min(rect.width / naturalW, rect.height / naturalH);
+      const drawnW = naturalW * scale;
+      const drawnH = naturalH * scale;
+      const offsetX = (rect.width - drawnW) / 2;
+      const offsetY = (rect.height - drawnH) / 2;
+      const x = (e.clientX - rect.left - offsetX) / drawnW;
+      const y = (e.clientY - rect.top - offsetY) / drawnH;
+      if (x < 0 || y < 0 || x > 1 || y > 1) return;
+      browserCommand({ type: "click", x, y });
+    };
+    img.onwheel = (e) => {
+      e.preventDefault();
+      browserCommand({ type: "scroll", dy: e.deltaY });
+    };
+  }
+  if (keys) {
+    keys.onkeydown = async (e) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      e.stopPropagation();
+      const text = keys.value;
+      keys.value = "";
+      if (text) await browserCommand({ type: "type", text });
+      await browserCommand({ type: "key", key: "Enter" });
+    };
+  }
+}
+
+async function signInWithBrowser() {
+  veniceAccount.opening = true;
+  veniceAccount.sawLogin = false;
+  veniceAccount.webAtOpen = veniceAccount.web;
+  veniceAccount.note = "Opening Google.";
+  paintVenice();
+  showVeniceBrowser(true);
+  wireVeniceBrowser();
+  watchVeniceBrowser();
+  const frameNote = $("#venice-browser-note");
+  if (frameNote) {
+    delete frameNote.dataset.lock;
+    frameNote.textContent = "Opening Google…";
+  }
+  const wait = $("#venice-frame-wait");
+  if (wait) wait.hidden = false;
+  try {
+    await fetch("/api/venice/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "login" }),
+    });
+  } catch {
+    veniceAccount.opening = false;
+    veniceAccount.note = "Could not open Google.";
+    paintVenice();
+    if (frameNote) frameNote.textContent = "Could not open Google. Press Google to try again.";
+    return;
+  }
+  browserCommand({ type: "google" });
+  veniceAccount.opening = false;
+  paintVenice();
+}
 
 function wireNav() {
   $("#navtabs").addEventListener("click", (e) => {
@@ -122,7 +374,56 @@ function wireNav() {
     const panel = $("#settings-panel");
     if (!panel) return;
     panel.style.display = panel.style.display === "block" ? "none" : "block";
+    if (panel.style.display === "block") refreshVenice();
   };
+  const login = $("#venice-login");
+  if (login) login.onclick = (e) => {
+    e.stopPropagation();
+    if (veniceAccount.opening) return;
+    signInWithBrowser();
+  };
+  const webButton = $("#venice-web-save");
+  const webToken = $("#venice-web-session");
+  const saveWebSession = async () => {
+    const token = webToken?.value?.trim() || "";
+    if (webButton) webButton.disabled = true;
+    try {
+      const res = await fetch("/api/venice/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "web-session", token }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (webToken) webToken.value = "";
+      if (!res.ok || !data.web) {
+        veniceAccount.note = data.message || "Venice rejected that web session.";
+        paintVenice();
+        return;
+      }
+      await refreshVenice();
+    } catch {
+      veniceAccount.note = "Could not reach Venice to check that web session.";
+      paintVenice();
+    } finally {
+      if (webButton) webButton.disabled = false;
+    }
+  };
+  if (webToken) webToken.onkeydown = (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      e.stopPropagation();
+      saveWebSession();
+    }
+  };
+  if (webButton) webButton.onclick = (e) => {
+    e.stopPropagation();
+    saveWebSession();
+  };
+  paintVenice();
+  if (veniceAccount.browserOpen) {
+    wireVeniceBrowser();
+    watchVeniceBrowser();
+  }
   if (!settingsCloserBound) {
     settingsCloserBound = true;
     document.addEventListener("click", (e) => {

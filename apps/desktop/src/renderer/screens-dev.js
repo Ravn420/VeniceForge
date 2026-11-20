@@ -308,7 +308,9 @@ function modelOptionsHTML(S, selected, dev) {
     : modelsAll;
   const list = models.length ? models : modelsAll;
   const sel = list.some((m) => m.id === selected) ? selected : list[0].id;
-  return list.map((m) => `<option value="${E(m.id)}"${m.id === sel ? " selected" : ""}>${E(m.name || m.id)}</option>`).join("");
+  const option = (m) => `<option value="${E(m.id)}"${m.id === sel ? " selected" : ""}>${E(m.name || m.id)}</option>`;
+  const group = (label, rows) => rows.length ? `<optgroup label="${label}">${rows.map(option).join("")}</optgroup>` : "";
+  return group("No credit cost", list.filter((m) => !m.usesCredits)) + group("Uses credits", list.filter((m) => m.usesCredits));
 }
 
 function selectBoxHTML(devName, selected, label) {
@@ -322,16 +324,14 @@ function modelFilterHTML(devName) {
 }
 
 function chatLogHTML(S) {
-  if (!S.chat.length)
-    return `<div class="git-clean" style="margin-top:10px">No messages yet — describe a task and send.</div>`;
-  return S.chat.map((m) => {
-    const role = m.role === "user" ? "You" : "Assistant";
-    return `<div class="chat-msg ${m.role === "user" ? "user" : "assistant"}">` +
-      `<div class="role">${role}${m.meta && m.role === "user" ? " · " + E(m.meta) : ""}</div>` +
-      `<div class="body">${E(m.text)}</div>` +
-      (m.meta && m.role !== "user" ? `<div class="meta">${E(m.meta)}</div>` : "") +
-      `</div>`;
-  }).join("");
+  const rows = (S.chat || []).map((m) => {
+    const kind = m.role === "user" ? "user" : m.role === "action" ? "action" : "assistant";
+    const who = kind === "user" ? "You" : kind === "action" ? "Action" : "Assistant";
+    return `<article class="dev-msg ${kind}"><div class="who">${who}${m.meta ? " · " + E(m.meta) : ""}</div><div class="body">${E(m.text)}</div></article>`;
+  });
+  if (chatInFlight) rows.push(`<article class="dev-msg action live"><div class="who">Action</div><div class="body">Waiting on ${E(S.model || "the model")}</div></article>`);
+  if (!rows.length) return `<div class="dev-empty">Your messages, replies, and actions show up here.</div>`;
+  return rows.join("");
 }
 
 function subListHTML(S) {
@@ -436,7 +436,62 @@ function setPanel(name) {
   });
 }
 
-function syncChat() { const el = q('[data-dev="chat-log"]'); if (el && C?.state) el.innerHTML = chatLogHTML(C.state); }
+function chatKind(role) {
+  return role === "user" ? "user" : role === "action" ? "action" : "assistant";
+}
+
+function chatWho(kind, meta) {
+  const who = kind === "user" ? "You" : kind === "action" ? "Action" : "Assistant";
+  return meta ? who + " · " + meta : who;
+}
+
+function chatNode(message) {
+  const kind = chatKind(message.role);
+  const article = document.createElement("article");
+  article.className = "dev-msg " + kind + (message.live ? " live" : "");
+  const who = document.createElement("div");
+  who.className = "who";
+  who.textContent = chatWho(kind, message.meta);
+  const body = document.createElement("div");
+  body.className = "body";
+  body.textContent = message.text || "";
+  article.append(who, body);
+  return article;
+}
+
+function stickFeed(el) {
+  if (!el) return;
+  if (el.scrollHeight - el.scrollTop - el.clientHeight < 96) el.scrollTop = el.scrollHeight;
+}
+
+function syncChat() {
+  const el = q('[data-dev="chat-log"]');
+  if (!el || !C?.state) return;
+  const messages = C.state.chat || [];
+  el.replaceChildren();
+  if (!messages.length) {
+    const empty = document.createElement("div");
+    empty.className = "dev-empty";
+    empty.textContent = "Your messages, replies, and actions show up here.";
+    el.append(empty);
+    return;
+  }
+  for (const message of messages) el.append(chatNode(message));
+  stickFeed(el);
+}
+
+function pushTurn(message) {
+  const S = C?.state;
+  if (!S) return null;
+  S.chat.push(message);
+  const el = q('[data-dev="chat-log"]');
+  if (!el) return null;
+  el.querySelector(".dev-empty")?.remove();
+  const node = chatNode(message);
+  el.append(node);
+  stickFeed(el);
+  return node;
+}
 function syncSubs() { const el = q('[data-dev="sub-list"]'); if (el && C?.state) el.innerHTML = subListHTML(C.state); }
 function syncApi() { const el = q('[data-dev="panel-API"]'); if (el && C?.state) el.innerHTML = apiPanelHTML(C.state); }
 function syncGit() {
@@ -550,47 +605,155 @@ function syncStatusbar() {
    ACTIONS — chat / subagents / git / api
    ============================================================ */
 function buildMessages(S, task) {
-  const mode = MODES[S.agentMode] || MODES.agent;
-  const parts = [
-    "You are the AI pair programmer inside Venice Forge, an Electron dev studio.",
-    "Project root: " + (S.projectDir || "(no folder open)"),
-  ];
-  if (S.activeFile && S.openFiles.has(S.activeFile)) {
-    parts.push(`Active file: ${S.activeFile}\n\`\`\`\n${clip(S.openFiles.get(S.activeFile), 4000)}\n\`\`\``);
+  const bits = [task];
+  if (S.pickedFileName && S.pickedFileText) bits.push("Attached file " + S.pickedFileName + ":\n" + clip(S.pickedFileText, 8000));
+  if (S.pickedFolder && S.folderListing && S.folderListing.length) bits.push("Folder " + S.pickedFolder + ":\n" + S.folderListing.slice(0, 40).join("\n"));
+  return bits.join("\n\n");
+}
+
+function note(text) {
+  pushTurn({ role: "action", text });
+}
+
+function paintPicks() {
+  const S = C?.state; if (!S) return;
+  const folder = q('[data-dev="folder-label"]');
+  const file = q('[data-dev="file-label"]');
+  if (folder) folder.textContent = S.pickedFolder || "Folder";
+  if (file) file.textContent = S.pickedFileName || "File";
+}
+
+function pickFolder() {
+  if (C?.forge?.files?.openDialog && C.openProject) {
+    Promise.resolve(C.openProject()).then(() => {
+      const S = C?.state; if (!S) return;
+      S.pickedFolder = String(S.projectDir || "").split(/[/\\]/).filter(Boolean).pop() || "Folder";
+      S.folderListing = parseTree(S.tree).filter((en) => !en.dir).slice(0, 40).map((en) => en.path);
+      note("Opened folder " + (S.projectDir || S.pickedFolder) + (S.folderListing.length ? "\n" + S.folderListing.join("\n") : ""));
+      paintPicks();
+    }).catch(() => {});
+    return;
   }
-  parts.push(mode.prompt);
-  const sys = parts.filter(Boolean).join("\n\n");
-  const hist = S.chat.slice(-12).map((m) => ({ role: m.role === "user" ? "user" : "assistant", content: String(m.text || "") }));
-  return [{ role: "system", content: sys }, ...hist];
+  q('[data-dev="folder-input"]')?.click();
+}
+
+function pickFile() {
+  q('[data-dev="file-input"]')?.click();
+}
+
+async function onFolderInput(input) {
+  const files = [...(input.files || [])];
+  input.value = "";
+  if (!files.length || !C?.state) return;
+  const S = C.state;
+  const root = String(files[0].webkitRelativePath || files[0].name).split("/")[0] || "Folder";
+  S.pickedFolder = root;
+  S.folderListing = files.slice(0, 40).map((file) => file.webkitRelativePath || file.name);
+  note("Opened folder " + root + "\n" + S.folderListing.join("\n"));
+  paintPicks();
+}
+
+async function onFileInput(input) {
+  const file = input.files && input.files[0];
+  input.value = "";
+  if (!file || !C?.state) return;
+  const S = C.state;
+  let text = "";
+  try { text = await file.text(); } catch { text = ""; }
+  S.pickedFileName = file.name;
+  S.pickedFileText = text.slice(0, 8000);
+  note("Attached " + file.name + (text ? "\n" + clip(text, 1200) : ""));
+  paintPicks();
 }
 
 async function sendChat() {
   const S = C?.state; if (!S || chatInFlight) return;
   const ta = q('[data-dev="task"]');
   const task = (ta?.value || "").trim();
-  if (!task) { C?.notify?.("Describe a task first"); return; }
-  if (!S.model) { C?.notify?.("Pick a model first"); return; }
-  S.chat.push({ role: "user", text: task, meta: (MODES[S.agentMode] || MODES.agent).chip });
-  syncChat();
+  if (!task) return;
+  if (!S.model) { note("Pick a model first."); return; }
+  pushTurn({ role: "user", text: task });
+  pushTurn({ role: "action", text: "Sent to " + S.model });
+  const reply = { role: "assistant", text: "", live: true };
+  const node = pushTurn(reply);
+  const body = node?.querySelector(".body");
+  const who = node?.querySelector(".who");
   if (ta) ta.value = "";
   const btn = q('[data-dev="send-btn"]');
   chatInFlight = true;
-  if (btn) { btn.disabled = true; btn.textContent = "Thinking…"; }
+  if (btn) btn.disabled = true;
+  let frame = 0;
+  let primed = false;
+  const paint = () => {
+    frame = 0;
+    if (body) body.textContent = reply.text;
+    stickFeed(q('[data-dev="chat-log"]'));
+  };
+  const add = (bit) => {
+    reply.text += bit;
+    if (!primed) {
+      primed = true;
+      paint();
+      return;
+    }
+    if (!frame) frame = requestAnimationFrame(paint);
+  };
   try {
+    const prior = S.chat
+      .filter((m) => m !== reply && (m.role === "user" || m.role === "assistant") && String(m.text || "").trim())
+      .slice(0, -1)
+      .slice(-10)
+      .map((m) => ({ role: m.role, content: String(m.text || "").slice(0, 4000) }));
     const res = await fetch("/api/studio/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kind: "text", modelId: S.model, prompt: task }),
+      body: JSON.stringify({ kind: "text", modelId: S.model, prompt: buildMessages(S, task), messages: prior, stream: true }),
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data.text) throw new Error(data.message || data.error || "Venice did not return a reply.");
-    S.chat.push({ role: "assistant", text: data.text, meta: data.modelName || S.model });
+    if (!res.ok || !res.body) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.message || data.error || "Venice did not return a reply.");
+    }
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    let failed = "";
+    while (true) {
+      const step = await reader.read();
+      if (step.done) break;
+      buf += dec.decode(step.value, { stream: true });
+      let cut;
+      while ((cut = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, cut).trim();
+        buf = buf.slice(cut + 1);
+        if (!line) continue;
+        let evt = null;
+        try { evt = JSON.parse(line); } catch { evt = null; }
+        if (!evt) continue;
+        if (evt.modelName) {
+          reply.meta = evt.modelName;
+          if (who) who.textContent = chatWho("assistant", reply.meta);
+        }
+        if (evt.text) add(evt.text);
+        if (evt.error) failed = String(evt.error);
+      }
+    }
+    if (frame) cancelAnimationFrame(frame);
+    paint();
+    if (!reply.text.trim()) throw new Error(failed || "Venice did not return a reply.");
   } catch (err) {
-    pushError(S, err);
+    if (frame) cancelAnimationFrame(frame);
+    if (!reply.text) {
+      const at = S.chat.lastIndexOf(reply);
+      if (at >= 0) S.chat.splice(at, 1);
+      node?.remove();
+    }
+    pushTurn({ role: "action", text: "Could not finish — " + (err?.message || err) });
   } finally {
+    reply.live = false;
+    node?.classList.remove("live");
     chatInFlight = false;
-    if (btn) { btn.disabled = false; btn.textContent = "Send task"; }
-    syncChat(); syncApi(); syncStatusbar();
+    if (btn) btn.disabled = false;
+    if (body && reply.text) body.textContent = reply.text;
   }
 }
 
@@ -674,9 +837,12 @@ async function loadModels() {
       const res = await fetch("/api/studio/models?kind=text");
       const data = await res.json();
       if (Array.isArray(data.models) && data.models.length) {
-        S.models = data.models.map((m) => ({ id: m.id, name: m.name, surface: "chat" }));
+        S.models = data.models.map((m) => ({ id: m.id, name: m.name, surface: "chat", usesCredits: m.usesCredits === true }));
         S.modelsLoaded = true;
-        if (!S.models.some((m) => m.id === S.model)) S.model = S.models[0].id;
+        if (!S.models.some((m) => m.id === S.model)) {
+          const free = S.models.find((m) => !m.usesCredits);
+          S.model = (free || S.models[0]).id;
+        }
       }
     } catch {}
     modelsLoading = false;
@@ -773,39 +939,17 @@ async function createNewProject() {
 function renderWorkspace(ctx) {
   C = ctx; prepState(ctx.state);
   const S = ctx.state;
-  const proj = S.projectDir ? shortName(S.projectDir) : "No project";
-  const templates = TEMPLATES.map((t) =>
-    `<div class="template-card${activeTpl === t.id ? " active" : ""}" data-dev="tpl" data-action="use-template" data-tpl="${t.id}">` +
-    `<div class="t-name">${E(t.name)}</div><div class="t-sub">${E(t.sub)}</div></div>`).join("");
-  return `<div data-dev="root" style="flex:1 1 auto;min-height:0;height:100%;display:flex;flex-direction:column">` +
-    `<div class="workspace" style="flex:1 1 auto;min-height:0">` +
-      `<aside class="explorer" aria-label="Projects and files">` +
-        `<div class="panel-head"><span class="panel-title" title="${E(S.projectDir || "")}">${E(proj)}</span>` +
-        `<div class="panel-actions">` +
-        `<button class="icon-btn" data-action="open-project" title="Open folder…" aria-label="Open folder">${FOLDER_OPEN_SVG}</button>` +
-        `<button class="icon-btn" data-action="new-project" title="New project" aria-label="New project">${NEW_PROJECT_SVG}</button></div></div>` +
-        `<label class="search">${SEARCH_SVG}<input data-dev="tree-search" placeholder="Find file…" /></label>` +
-        `<div class="explorer-scroll">` +
-          `<div class="section-label"><span>Files</span><span data-dev="tree-count">0</span></div>` +
-          `<div class="file-tree" data-dev="tree" role="tree" aria-label="Project files">${treeListHTML(S)}</div>` +
-          `<div class="divider"></div>` +
-          `<div class="section-label"><span>Workflow templates</span></div>` +
-          templates +
-        `</div>` +
-      `</aside>` +
-      `<section class="center">` +
-        `<div class="editor-tabs" data-dev="tabs" style="${S.openFiles.size ? "" : "display:none"}">${tabsHTML(S)}</div>` +
-        `<div class="editor-body" data-dev="editor-body">${editorBodyHTML(S)}</div>` +
-      `</section>` +
-      `<aside class="inspector">` +
-        `<div class="tab-strip" data-dev="panel-tabs">` +
-          ["Agent", "Subagents", "Git", "API"].map((p) =>
-            `<button class="${S.activePanel === p ? "active" : ""}" data-action="panel" data-panel="${p}">${p}</button>`).join("") +
-        `</div>` +
-        `<div class="inspector-scroll" data-dev="inspector-body">${inspectorBodyHTML(S)}</div>` +
-      `</aside>` +
-    `</div>` +
-    terminalHTML(S) +
+  return `<div data-dev="root" class="dev-stream">` +
+    `<div class="dev-feed" data-dev="chat-log">${chatLogHTML(S)}</div>` +
+    `<form class="dev-bar" data-dev="bar">` +
+      `<button type="button" class="dev-pick" data-action="pick-folder" title="Choose a folder">${FOLDER_OPEN_SVG}<span data-dev="folder-label">${E(S.pickedFolder || "Folder")}</span></button>` +
+      `<button type="button" class="dev-pick" data-action="pick-file" title="Choose a file">${FILE_SVG}<span data-dev="file-label">${E(S.pickedFileName || "File")}</span></button>` +
+      `<select class="dev-model" data-dev="model-select" aria-label="Model">${modelOptionsHTML(S, S.model, "model-select")}</select>` +
+      `<textarea data-dev="task" rows="1" placeholder="Message" aria-label="Message"></textarea>` +
+      `<button type="button" class="dev-send" data-action="send" data-dev="send-btn">Send</button>` +
+    `</form>` +
+    `<input data-dev="folder-input" type="file" webkitdirectory multiple hidden>` +
+    `<input data-dev="file-input" type="file" hidden>` +
   `</div>`;
 }
 
@@ -843,6 +987,8 @@ function bindDelegates() {
     const S = C?.state; if (!S) return;
     const F = C?.forge;
     if (el.dataset.action === "send") { sendChat(); return; }
+    if (el.dataset.action === "pick-folder") { pickFolder(); return; }
+    if (el.dataset.action === "pick-file") { pickFile(); return; }
     if (el.matches('.tree-item[role="treeitem"]')) focusTreePath(el.dataset.path);
     switch (el.dataset.action) {
       case "open-project":
@@ -904,6 +1050,8 @@ function bindDelegates() {
     const t = e.target;
     if (!t.matches || !t.closest('[data-dev="root"]')) return;
     const S = C?.state; if (!S) return;
+    if (t.matches('[data-dev="folder-input"]')) { onFolderInput(t); return; }
+    if (t.matches('[data-dev="file-input"]')) { onFileInput(t); return; }
     if (!t.matches('[data-dev="model-select"], [data-dev="sub-model-select"]')) return;
     const dev = t.getAttribute("data-dev");
     if (dev === "model-select") S.model = t.value;
@@ -1003,6 +1151,9 @@ function bindDelegates() {
         e.target.value = termHistory[termHistIdx] || "";
         return;
       }
+    }
+    if (e.target.matches('[data-dev="task"]') && e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault(); sendChat(); return;
     }
     if (mod && e.key === "Enter" && e.target.matches('[data-dev="task"]')) {
       e.preventDefault(); sendChat();
