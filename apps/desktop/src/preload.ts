@@ -67,13 +67,24 @@ contextBridge.exposeInMainWorld("forge", {
     chatLink: (task: string, model?: string) => ipcRenderer.invoke("venice:chatLink", task, model),
     /** Process a completion task in-app using Venice.ai web-app models (no HTTP API). */
     processCompletion: (task: string, model?: string) => ipcRenderer.invoke("venice:processCompletion", task, model),
-    /** Import venice.ai cookies from installed browsers → SSO login. */
+    /** Import an existing venice.ai browser session. Skips login when one is already there. */
     importCookies: () => ipcRenderer.invoke("venice:importCookies"),
-    /** Current venice.ai login state inside the app's persisted session. */
+    /** Whether the browser the person already uses is signed in to venice.ai. */
     loginState: () => ipcRenderer.invoke("venice:loginState"),
+    /** Open the system browser only if no venice.ai session exists yet. */
+    openBrowserLogin: () => ipcRenderer.invoke("venice:openBrowserLogin"),
   },
   shell: {
     exec: (argv: string[], cwd: string) => ipcRenderer.invoke("shell:exec", argv, cwd),
     which: (bin: string) => ipcRenderer.invoke("shell:which", bin),
+  },
+  brainstorm: {
+    run: (payload: unknown) => ipcRenderer.invoke("brainstorm:run", payload),
+    stop: () => ipcRenderer.invoke("brainstorm:stop"),
+    onEvent: (cb: (event: unknown) => void) => {
+      const listener = (_e: unknown, event: unknown) => cb(event);
+      ipcRenderer.on("brainstorm:event", listener);
+      return () => ipcRenderer.removeListener("brainstorm:event", listener);
+    },
   },
 });

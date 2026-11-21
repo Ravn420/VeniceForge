@@ -1,4 +1,5 @@
 import { makeId, type Actor, type CommandRecord, type CommandStatus } from "@forge/contracts";
+import type { ChildProcess } from "node:child_process";
 import { Capture } from "./capture.js";
 import { reapChildren } from "./reaper.js";
 import type { Sandbox } from "./sandbox.js";
@@ -72,7 +73,21 @@ export async function execute(argv: string[], opts: ExecuteOptions): Promise<Exe
     return { record, aborted: false };
   }
 
-  const child = opts.sandbox.spawn(argv, { ...BASE_ENV, ...opts.env }, opts.cwd);
+  let child: ChildProcess;
+  try {
+    child = opts.sandbox.spawn(argv, { ...BASE_ENV, ...opts.env }, opts.cwd);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    record.status = "failed";
+    record.endedAt = now();
+    record.durationMs = record.endedAt - startedAt;
+    record.stderr = msg;
+    record.exitCode = 1;
+    if (/disk quota exceeded/i.test(msg)) {
+      record.signatureId = "disk_full";
+    }
+    return { record, aborted: false };
+  }
 
   const timer = setTimeout(() => {
     record.status = "timed_out";

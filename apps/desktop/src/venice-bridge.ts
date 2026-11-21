@@ -15,16 +15,23 @@ export interface VeniceModel {
   name: string;
   surface: "chat" | "image" | "video" | "audio" | "music";
   blurb: string;
+  /** True for models that are free / no credit cost on the Venice.ai web app. */
+  free?: boolean;
+  /** Display label that makes free status obvious in dropdowns. */
+  label?: string;
 }
 
+/** Curated free (no-credit-cost) Venice.ai web-app models.
+ *  These appear in model selection dropdowns and are usable via the official web surfaces.
+ *  No Inference API is used for completions. */
 export const VENICE_WEBAPP_MODELS: VeniceModel[] = [
-  { id: "venice-uncensored", name: "Venice Uncensored", surface: "chat", blurb: "Default general chat model on venice.ai/chat." },
-  { id: "venice-coder", name: "Venice Coder", surface: "chat", blurb: "Code-focused chat model for dev tasks." },
-  { id: "venice-reasoner", name: "Venice Reasoner", surface: "chat", blurb: "Chain-of-thought reasoning model." },
-  { id: "venice-image", name: "Venice Image Studio", surface: "image", blurb: "Image generation in the web app studio." },
-  { id: "venice-video", name: "Venice Video Studio", surface: "video", blurb: "Video generation in the web app studio." },
-  { id: "venice-audio", name: "Venice Audio Studio", surface: "audio", blurb: "Voice and sound in the web app studio." },
-  { id: "venice-music", name: "Venice Music Studio", surface: "music", blurb: "Song generation with Venice.ai’s web-app music models. Not the API." }
+  { id: "venice-uncensored", name: "Venice Uncensored", surface: "chat", blurb: "Default general chat model on venice.ai/chat. Free on the web app.", free: true, label: "Venice Uncensored (free)" },
+  { id: "venice-coder", name: "Venice Coder", surface: "chat", blurb: "Code-focused chat model for dev tasks. Free on the web app.", free: true, label: "Venice Coder (free)" },
+  { id: "venice-reasoner", name: "Venice Reasoner", surface: "chat", blurb: "Chain-of-thought reasoning model. Free on the web app.", free: true, label: "Venice Reasoner (free)" },
+  { id: "venice-image", name: "Venice Image Studio", surface: "image", blurb: "Image generation in the web app studio. Free tier available.", free: true, label: "Venice Image Studio (free)" },
+  { id: "venice-video", name: "Venice Video Studio", surface: "video", blurb: "Video generation in the web app studio.", free: true, label: "Venice Video Studio (free)" },
+  { id: "venice-audio", name: "Venice Audio Studio", surface: "audio", blurb: "Voice and sound in the web app studio. Free on the web app.", free: true, label: "Venice Audio Studio (free)" },
+  { id: "venice-music", name: "Venice Music Studio", surface: "music", blurb: "Song generation with Venice.ai’s web-app music models. Not the API.", free: true, label: "Venice Music Studio (free)" }
 ];
 
 const SURFACE_URLS: Record<VeniceModel["surface"], string> = {

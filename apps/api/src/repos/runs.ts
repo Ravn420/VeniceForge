@@ -108,6 +108,17 @@ export const runRepo = {
     return r ? toRun(r) : null;
   },
 
+  async getOwned(id: string, userId: string): Promise<AgentRun | null> {
+    const r = getDb()
+      .prepare(`
+        SELECT r.* FROM agent_runs r
+        JOIN projects p ON p.id = r.project_id
+        WHERE r.id = ? AND p.user_id = ?
+      `)
+      .get(id, userId) as AgentRunRow | undefined;
+    return r ? toRun(r) : null;
+  },
+
   async replay(id: string): Promise<AgentStep[]> {
     const rows = getDb()
       .prepare("SELECT * FROM agent_steps WHERE run_id = ? ORDER BY idx ASC")

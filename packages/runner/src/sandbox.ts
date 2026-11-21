@@ -37,6 +37,25 @@ const IMAGE = process.env.SANDBOX_IMAGE ?? "forge-sandbox:latest";
 function sh(cmd: string, args: string[], cwd?: string): string {
   return execFileSync(cmd, args, { encoding: "utf8", ...(cwd ? { cwd } : {}) });
 }
+function workspaceUsageMb(root: string): number {
+  try {
+    const out = execFileSync("du", ["-sb", root], { encoding: "utf8" });
+    const bytes = Number(out.trim().split(/\s+/)[0] ?? "0");
+    return Math.ceil(bytes / (1024 * 1024));
+  } catch {
+    return 0;
+  }
+}
+
+function assertDiskQuota(root: string, limitMb: number): void {
+  if (!Number.isFinite(limitMb) || limitMb <= 0) return;
+  const used = workspaceUsageMb(root);
+  if (used > limitMb) {
+    throw new Error(`Disk quota exceeded on workspace path (used ${used} MB > limit ${limitMb} MB)`);
+  }
+}
+
+
 
 function pipePty(argv: string[]): PtyLike {
   const listeners = new Map<string, ((arg: never) => void)[]>();
@@ -97,9 +116,11 @@ export class DockerSandbox implements Sandbox {
   readonly id: string;
   readonly root: string;
   private container: string;
+  private readonly limits: SandboxLimits;
 
   constructor(id: string, limits: SandboxLimits) {
     this.id = id;
+    this.limits = limits;
     this.root = mkdtempSync(join(tmpdir(), `forge-${id}-`));
     this.container = `forge-${id}-${randomUUID().slice(0, 8)}`;
 
@@ -123,6 +144,7 @@ export class DockerSandbox implements Sandbox {
   }
 
   spawn(argv: string[], env: Record<string, string>, cwd: string): ChildProcess {
+    assertDiskQuota(this.root, this.limits.diskMb);
     const envArgs = Object.entries(env).flatMap(([k, v]) => ["-e", `${k}=${v}`]);
     return spawn("docker", ["exec", "-w", cwd, ...envArgs, this.container, ...argv], {
       stdio: ["ignore", "pipe", "pipe"]
@@ -130,10 +152,12 @@ export class DockerSandbox implements Sandbox {
   }
 
   spawnPty(shell: string, cwd: string): PtyLike {
+    assertDiskQuota(this.root, this.limits.diskMb);
     return pipePty(["docker", "exec", "-it", "-w", cwd, this.container, shell]);
   }
 
   exec(argv: string[], cwd = "/app"): { code: number; out: string } {
+    assertDiskQuota(this.root, this.limits.diskMb);
     try {
       return { code: 0, out: sh("docker", ["exec", "-w", cwd, this.container, ...argv]) };
     } catch (e) {
@@ -180,14 +204,17 @@ function childEnv(overrides: Record<string, string>): Record<string, string> {
 export class LocalSandbox implements Sandbox {
   readonly id: string;
   readonly root: string;
-  constructor(id: string, root: string) {
+  private readonly diskMb: number;
+  constructor(id: string, root: string, diskMb = sandboxConfig().diskMb) {
     this.id = id;
     this.root = root;
+    this.diskMb = diskMb;
   }
   private resolveCwd(cwd: string): string {
     return cwd === "/app" ? this.root : cwd;
   }
   spawn(argv: string[], env: Record<string, string>, cwd: string): ChildProcess {
+    assertDiskQuota(this.root, this.diskMb);
     return spawn(argv[0] ?? "true", argv.slice(1), {
       cwd: this.resolveCwd(cwd),
       env: childEnv(env),
@@ -195,9 +222,11 @@ export class LocalSandbox implements Sandbox {
     });
   }
   spawnPty(shell: string, cwd: string): PtyLike {
+    assertDiskQuota(this.root, this.diskMb);
     return nativePty(shell, this.resolveCwd(cwd));
   }
   exec(argv: string[], cwd = this.root): { code: number; out: string } {
+    assertDiskQuota(this.root, this.diskMb);
     try {
       return { code: 0, out: sh(argv[0] ?? "true", argv.slice(1), this.resolveCwd(cwd)) };
     } catch (e) {
@@ -227,17 +256,20 @@ export interface SandboxConfig {
 }
 
 export function sandboxConfig(): SandboxConfig {
-  return {
+  const cfg = {
     cpu: process.env.SANDBOX_CPU_LIMIT ?? "2",
     memMb: Number(process.env.SANDBOX_MEM_LIMIT_MB ?? 2048),
     diskMb: Number(process.env.SANDBOX_DISK_LIMIT_MB ?? 8192)
   };
+  if (!Number.isFinite(cfg.memMb) || cfg.memMb <= 0) throw new Error("invalid SANDBOX_MEM_LIMIT_MB");
+  if (!Number.isFinite(cfg.diskMb) || cfg.diskMb <= 0) throw new Error("invalid SANDBOX_DISK_LIMIT_MB");
+  return cfg;
 }
 
 /** Runtime is chosen by env; both paths create their own root. */
 export function createSandbox(id: string): Sandbox {
   if (process.env.SANDBOX_RUNTIME === "local") {
-    return new LocalSandbox(id, mkdtempSync(join(tmpdir(), `forge-${id}-`)));
+    return new LocalSandbox(id, mkdtempSync(join(tmpdir(), `forge-${id}-`)), sandboxConfig().diskMb);
   }
   return new DockerSandbox(id, sandboxConfig());
 }

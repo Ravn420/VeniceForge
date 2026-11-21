@@ -1888,3 +1888,79 @@ textarea.agent-input:focus { border-color: var(--border-focus); }
   #edit-go { min-height: 44px; }
 }
 
+/* Brainstorm */
+.storm {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  display: grid;
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr) 240px;
+  background: var(--bg);
+}
+.storm-brief, .storm-stage, .storm-rail { min-height: 0; min-width: 0; overflow: auto; }
+.storm-brief { padding: 16px 16px 24px; border-right: 1px solid var(--border); background: var(--panel); }
+.storm-kicker { font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--accent-text); }
+.storm-title { font-size: 18px; font-weight: 600; margin: 6px 0 8px; }
+.storm-lead, .storm-seat-line, .storm-thesis { color: var(--fg-muted); font-size: 12px; line-height: 1.5; }
+.storm-input {
+  width: 100%;
+  height: 33px;
+  background: var(--panel-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  padding: 0 10px;
+  font-size: 12px;
+  outline: none;
+}
+.storm-input:focus, .storm-short:focus { border-color: var(--border-focus); }
+.storm-short { min-height: 64px; }
+.storm-stage { padding: 16px 18px 28px; }
+.storm-rail { border-left: 1px solid var(--border); background: var(--panel); }
+.storm-rail-body { padding: 0 14px 20px; }
+.storm-status-row { display: flex; align-items: center; gap: 8px; color: var(--fg-muted); font-size: 12px; }
+.storm-live { width: 8px; height: 8px; border-radius: 50%; background: var(--fg-dim); flex: 0 0 auto; }
+.storm-live.on { background: var(--success); }
+.storm-seats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 12px 0 16px; }
+.storm-seat { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px 10px; }
+.storm-seat.is-run { border-color: var(--border-focus); }
+.storm-seat.is-done { border-color: #2c5c4e; }
+.storm-seat-hit { width: 100%; display: flex; justify-content: space-between; gap: 8px; background: none; border: 0; color: var(--fg); padding: 2px 0 4px; font-weight: 600; text-align: left; }
+.storm-seat-state { font-size: 10px; font-weight: 500; color: var(--fg-muted); }
+.storm-seat-text { white-space: pre-wrap; font-family: var(--font); font-size: 11px; line-height: 1.45; margin-top: 8px; color: var(--fg); }
+.storm-empty-block h2, .storm-board-title { font-size: 16px; font-weight: 600; }
+.storm-empty-block ol { margin: 8px 0 0 18px; color: var(--fg-muted); font-size: 12px; line-height: 1.55; }
+.storm-board-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin: 6px 0 12px; }
+.storm-inline { width: auto; margin-top: 0; }
+.storm-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+.storm-card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+.storm-card header { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
+.storm-card h3 { font-size: 13px; font-weight: 600; }
+.storm-card p { margin-top: 8px; color: var(--fg-muted); font-size: 12px; line-height: 1.45; }
+.storm-score { color: var(--accent-text); font-size: 11px; font-weight: 600; }
+.storm-step span, .storm-risk span, .storm-next span { margin-right: 6px; color: var(--fg-dim); font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.storm-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.storm-tags span { border: 1px solid var(--border); border-radius: 99px; padding: 2px 6px; font-size: 10px; }
+.storm-card-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.storm-card-actions button { height: 28px; padding: 0 8px; border-radius: 5px; border: 1px solid var(--border); background: var(--panel-raised); color: var(--fg-muted); font-size: 11px; }
+.storm-extras { margin-top: 16px; display: grid; gap: 10px; color: var(--fg-muted); font-size: 12px; }
+.storm-extras h3 { color: var(--fg); font-size: 12px; margin-bottom: 4px; }
+.storm-extras ul { margin-left: 16px; }
+.storm-session {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  margin-top: 6px;
+  text-align: left;
+  padding: 6px 10px;
+  background: var(--panel-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg);
+}
+.storm-session.active { border-color: var(--border-focus); background: var(--panel-active); }
+.storm-session small { color: var(--fg-dim); }
+.storm-rail-empty { margin-top: 8px; color: var(--fg-muted); font-size: 11px; }

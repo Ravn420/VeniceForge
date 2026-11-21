@@ -126,10 +126,24 @@ export class FileTools {
   }
 
   /**
-   * Placeholder for file watching functionality.
+   * Watch a path for changes (scoped; returns a handle id).
+   * Emits via the caller; this is a basic real watcher using fs.watch.
    */
   watch(path: string): string {
-    return path;
+    const { watch } = require("node:fs");
+    const id = `watch-${Date.now()}`;
+    try {
+      const watcher = watch(path, { recursive: true }, (event, filename) => {
+        // In a full impl, emit to renderer via IPC; here we just keep the watcher alive.
+        console.log(`[watch ${id}] ${event} ${filename}`);
+      });
+      // Store watcher for later close if needed; simplified for now.
+      (this as any)._watchers ??= new Map();
+      (this as any)._watchers.set(id, watcher);
+    } catch (e) {
+      console.error("watch failed", e);
+    }
+    return id;
   }
 
   /**

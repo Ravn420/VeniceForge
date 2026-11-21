@@ -1,13 +1,11 @@
-import { BrowserWindow, IpcMain, session } from "electron";
+import { BrowserWindow, IpcMain } from "electron";
 import type { SubagentManager } from "./subagents.js";
 import type { BrowserAutomation } from "./browser.js";
 import type { FileTools } from "./file-tools.js";
 import type { TerminalManager } from "./terminal.js";
 import type { VeniceBridge } from "./venice-bridge.js";
-import { collectVeniceCookies } from "./cookie-import.js";
+import { adoptBrowserSession, openSystemBrowserLogin } from "./venice-login.js";
 import { execFileSync, execSync } from "node:child_process";
-
-const VENICE_SESSION = "persist:venice";
 
 export interface IpcDeps {
   subagents: SubagentManager;
@@ -44,6 +42,16 @@ export function registerIpcHandlers(ipc: IpcMain, deps: IpcDeps): void {
   ipc.handle("terminal:kill", async (_e, id: string) => deps.terminals.kill(id));
   ipc.handle("terminal:getData", async (_e, id: string) => deps.terminals.getData(id));
 
+  ipc.handle("brainstorm:run", async (e, payload: unknown) => {
+    return runBrainstorm(payload, (event) => {
+      if (!e.sender.isDestroyed()) e.sender.send("brainstorm:event", event);
+    });
+  });
+  ipc.handle("brainstorm:stop", async () => {
+    stopBrainstorm();
+    return { ok: true };
+  });
+
   // ── Browser ──
   ipc.handle("browser:open", async (_e, url: string) => deps.browser.open(url));
   ipc.handle("browser:screenshot", async () => deps.browser.screenshot());
@@ -72,38 +80,24 @@ export function registerIpcHandlers(ipc: IpcMain, deps: IpcDeps): void {
   // ── Venice.ai login (Fallback: Cookie Import from installed browsers) ──
   // This is used if the user prefers not to use the standard OAuth flow.
   ipc.handle("venice:importCookies", async () => {
-    const { cookies, sources, errors } = collectVeniceCookies();
-    let imported = 0;
-    try {
-      const ses = session.fromPartition(VENICE_SESSION);
-      for (const c of cookies) {
-        try {
-          await ses.cookies.set({
-            url: `https://${c.domain.replace(/^\./, "")}${c.path || "/"}`,
-            name: c.name,
-            value: c.value,
-            domain: c.domain,
-            path: c.path || "/",
-            secure: c.secure,
-            expirationDate: c.expires || undefined
-          });
-          imported++;
-        } catch { /* skip individual cookie */ }
-      }
-    } catch (e) {
-      errors.push(`session: ${(e as Error).message.slice(0, 80)}`);
-    }
-    return { imported, sources, errors, totalFound: cookies.length };
+    const st = await adoptBrowserSession();
+    return {
+      imported: st.imported ? 1 : 0,
+      sources: st.source ? [st.source] : [],
+      errors: [],
+      loggedIn: st.loggedIn,
+      skippedLogin: st.skippedLogin,
+      source: st.source,
+    };
   });
 
-  /** Check whether the venice.ai session (webview partition) is logged in. */
+  /** Prefer the browser the person already uses. Skip login when that session is live. */
   ipc.handle("venice:loginState", async () => {
-    const ses = session.fromPartition(VENICE_SESSION);
-    const veniceCookies = await ses.cookies.get({ domain: "venice.ai" });
-    // A logged-in session carries the auth cookie; session-only tokens suffice.
-    const loggedIn = veniceCookies.some((c) => /token|auth|session|jwt/i.test(c.name));
-    return { loggedIn, cookieCount: veniceCookies.length };
+    const st = await adoptBrowserSession();
+    return { loggedIn: st.loggedIn, source: st.source, skippedLogin: st.skippedLogin, imported: !!st.imported };
   });
+
+  ipc.handle("venice:openBrowserLogin", async () => openSystemBrowserLogin());
 
   // ── Shell ──
   ipc.handle("shell:exec", async (_e, argv: string[], cwd: string) => {

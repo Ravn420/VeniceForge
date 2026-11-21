@@ -9,7 +9,7 @@ import {
   BoundsTracker, CheckpointStore, RecipeStore, SessionManager, apply, createSandbox,
   decide, diffSince, execute, isSafePath, spawnPty, type RemedyDeps
 } from "@forge/runner";
-import { fromHeader, maxSandboxes, register, authenticate, authenticateOAuth, revoke, sign } from "./auth.js";
+import { fromHeader, maxSandboxes, register, authenticate, revoke, sign } from "./auth.js";
 import { CreditMeter } from "./credits.js";
 import { IdleReaper, idleMs, type LiveEntry } from "./idle.js";
 import { RateLimiter } from "./ratelimit.js";
@@ -66,6 +66,11 @@ function entryForProject(projectId: string): Live | null {
   return null;
 }
 
+function sessionForProject(projectId: string, sessionId: string): Live | null {
+  const entry = live.get(sessionId);
+  return entry?.manager.session.projectId === projectId ? entry : null;
+}
+
 function guard(header: string | undefined) {
   const p = fromHeader(header);
   if (!p) return { p: null, error: { code: ErrorCode.E_UNAUTHORIZED } };
@@ -80,10 +85,9 @@ app.get("/health", async () => ({ ok: true }));
 app.post("/auth/register", async (req, reply) => {
   const body = z.object({
     userId: z.string().min(3).max(64),
-    password: z.string().min(8).max(256),
-    plan: z.enum(["free", "pro", "max"]).default("free")
-  }).parse(req.body);
-  if (!register(body.userId, body.password, body.plan)) {
+    password: z.string().min(8).max(256)
+  }).strict().parse(req.body);
+  if (!register(body.userId, body.password, "free")) {
     return reply.code(409).send({ code: ErrorCode.E_CONFLICT, message: "user already exists" });
   }
   const auth = authenticate(body.userId, body.password);
@@ -91,17 +95,11 @@ app.post("/auth/register", async (req, reply) => {
   return { token: sign(auth) };
 });
 
-app.post("/auth/oauth", async (req, reply) => {
-  const body = z.object({
-    provider: z.string(),
-    providerId: z.string()
-  }).parse(req.body);
-  try {
-    const auth = authenticateOAuth(body.provider, body.providerId);
-    return { token: sign(auth) };
-  } catch (e) {
-    return reply.code(500).send({ code: ErrorCode.E_INTERNAL, message: (e as Error).message });
-  }
+app.post("/auth/oauth", async (_req, reply) => {
+  return reply.code(501).send({
+    code: "E_NOT_IMPLEMENTED",
+    message: "OAuth sign-in is unavailable until provider token verification is configured"
+  });
 });
 
 
@@ -136,7 +134,7 @@ app.post("/projects/:id/sessions", async (req, reply) => {
   const { p, error } = guard(req.headers.authorization);
   if (!p) return reply.code(error?.code === ErrorCode.E_RATE_LIMITED ? 429 : 401).send(error);
   const { id } = z.object({ id: z.string() }).parse(req.params);
-  const project = await projectRepo.get(id);
+  const project = await projectRepo.getOwned(id, p.userId);
   if (!project) return reply.code(404).send({ code: ErrorCode.E_NOT_FOUND });
 
   if ([...live.values()].filter((l) => l.manager.session.projectId === id).length >= maxSandboxes(p.plan)) {
@@ -158,7 +156,10 @@ app.post("/projects/:id/sessions", async (req, reply) => {
 app.get("/projects/:id/history/:sessionId", async (req, reply) => {
   const { p, error } = guard(req.headers.authorization);
   if (!p) return reply.code(error?.code === ErrorCode.E_RATE_LIMITED ? 429 : 401).send(error);
-  const { sessionId } = z.object({ sessionId: z.string() }).parse(req.params);
+  const { id, sessionId } = z.object({ id: z.string(), sessionId: z.string() }).parse(req.params);
+  const project = await projectRepo.getOwned(id, p.userId);
+  if (!project) return reply.code(404).send({ code: ErrorCode.E_NOT_FOUND });
+  if (!sessionForProject(id, sessionId)) return reply.code(404).send({ code: ErrorCode.E_NOT_FOUND });
   return commandRepo.history(sessionId);
 });
 
@@ -166,13 +167,15 @@ app.post("/projects/:id/command", async (req, reply) => {
   const { p, error } = guard(req.headers.authorization);
   if (!p) return reply.code(error?.code === ErrorCode.E_RATE_LIMITED ? 429 : 401).send(error);
   const { id } = z.object({ id: z.string() }).parse(req.params);
+  const project = await projectRepo.getOwned(id, p.userId);
+  if (!project) return reply.code(404).send({ code: ErrorCode.E_NOT_FOUND });
   const body = z.object({
     sessionId: z.string(),
     argv: z.array(z.string()).min(1),
     cwd: z.string().default("/app"),
     autonomy: z.number().int().min(0).max(3).default(1)
   }).parse(req.body);
-  const entry = live.get(body.sessionId);
+  const entry = sessionForProject(id, body.sessionId);
   if (!entry) return reply.code(404).send({ code: ErrorCode.E_NOT_FOUND });
   reaper.touch(body.sessionId);
 
@@ -298,13 +301,17 @@ app.put("/projects/:id/file", async (req, reply) => {
   const { p, error } = guard(req.headers.authorization);
   if (!p) return reply.code(error?.code === ErrorCode.E_RATE_LIMITED ? 429 : 401).send(error);
   const { id } = z.object({ id: z.string() }).parse(req.params);
+  const project = await projectRepo.getOwned(id, p.userId);
+  if (!project) return reply.code(404).send({ code: ErrorCode.E_NOT_FOUND });
   const body = z.object({ path: z.string(), content: z.string() }).parse(req.body);
   if (!isSafePath(body.path)) return reply.code(400).send({ code: ErrorCode.E_BAD_REQUEST });
   const entry = entryForProject(id);
   if (!entry) return reply.code(404).send({ code: ErrorCode.E_NOT_FOUND });
-  const target = join(entry.sandbox.root, body.path);
-  mkdirSync(dirname(target), { recursive: true });
-  writeFileSync(target, body.content, "utf8");
+  const { applyEdits } = await import("@forge/runner");
+  const result = applyEdits(entry.sandbox.root, [{ path: body.path, content: body.content }]);
+  if (result.errors.length) {
+    return reply.code(400).send({ code: ErrorCode.E_BAD_REQUEST });
+  }
   return { ok: true };
 });
 
@@ -368,10 +375,24 @@ app.get("/projects/:id/ports", async (req, reply) => {
 });
 
 app.get("/projects/:id/preview/:port/*", async (req, reply) => {
-  const { id, port } = z.object({ id: z.string(), port: z.string() }).parse(req.params);
+  const { p, error } = guard(req.headers.authorization);
+  if (!p) {
+    return reply.code(error?.code === ErrorCode.E_RATE_LIMITED ? 429 : 401).send(error);
+  }
+  const { id, port: portText } = z.object({
+    id: z.string(),
+    port: z.string().regex(/^\d{1,5}$/)
+  }).parse(req.params);
+  const project = await projectRepo.getOwned(id, p.userId);
+  if (!project) return reply.code(404).send({ code: ErrorCode.E_NOT_FOUND });
+  const port = Number(portText);
+  const entry = entryForProject(id);
+  if (!entry || !portsFromSs(portMap, id).includes(port)) {
+    return reply.code(404).send({ code: ErrorCode.E_NOT_FOUND });
+  }
   const star = (req.params as Record<string, string>)["*"] ?? "";
   reply.hijack();
-  proxy(Number(port), `/${star}`, `/api/projects/${id}/preview/${port}/`, reply.raw);
+  proxy(port, `/${star}`, `/api/projects/${id}/preview/${port}/`, reply.raw);
 });
 
 app.post("/projects/:id/checkpoints", async (req, reply) => {
@@ -435,18 +456,28 @@ app.get("/runs/:id", async (req, reply) => {
   const { p, error } = guard(req.headers.authorization);
   if (!p) return reply.code(error?.code === ErrorCode.E_RATE_LIMITED ? 429 : 401).send(error);
   const { id } = z.object({ id: z.string() }).parse(req.params);
-  const r = await runRepo.get(id);
+  const r = await runRepo.getOwned(id, p.userId);
   if (!r) return reply.code(404).send({ code: ErrorCode.E_NOT_FOUND });
   return { run: r, steps: await runRepo.replay(id) };
 });
 
-app.get("/ws/:sessionId", { websocket: true }, (socket, req) => {
+app.get("/ws/:sessionId", { websocket: true }, async (socket, req) => {
   const payload = fromHeader(req.headers.authorization);
   if (!payload) {
     socket.close(4401, "unauthorized");
     return;
   }
   const { sessionId } = z.object({ sessionId: z.string() }).parse(req.params);
+  const entry = live.get(sessionId);
+  if (!entry) {
+    socket.close(4404, "not found");
+    return;
+  }
+  const project = await projectRepo.getOwned(entry.manager.session.projectId, payload.userId);
+  if (!project) {
+    socket.close(4403, "forbidden");
+    return;
+  }
   const detach = bus.attach(sessionId, (event) => socket.send(JSON.stringify(event)));
   socket.on("close", detach);
   socket.on("message", (raw: Buffer) => {

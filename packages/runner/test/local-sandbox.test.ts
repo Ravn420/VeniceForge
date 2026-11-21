@@ -54,3 +54,19 @@ describe("applyEdits", () => {
     expect(isSafePath("/etc/passwd")).toBe(false);
   });
 });
+describe("disk quota", () => {
+  it("rejects spawn when workspace exceeds diskMb", () => {
+    const root = gitRoot();
+    // Create a file larger than 1 MB
+    const big = Buffer.alloc(2 * 1024 * 1024, 0x61);
+    writeFileSync(join(root, "big.bin"), big);
+    const s = new LocalSandbox("p", root, 1); // 1 MB limit
+    expect(() => s.spawn(["true"], {}, "/app")).toThrow(/Disk quota exceeded/);
+  });
+
+  it("allows spawn when under quota", () => {
+    const root = gitRoot();
+    const s = new LocalSandbox("p", root, 100);
+    expect(() => s.spawn(["true"], {}, "/app")).not.toThrow();
+  });
+});

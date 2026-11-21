@@ -46,5 +46,12 @@ export const projectRepo = {
   async get(id: string): Promise<ProjectRecord | null> {
     const row = getDb().prepare("SELECT * FROM projects WHERE id = ?").get(id) as Row | undefined;
     return row ? toRecord(row) : null;
+  },
+
+  async getOwned(id: string, userId: string): Promise<ProjectRecord | null> {
+    const row = getDb()
+      .prepare("SELECT * FROM projects WHERE id = ? AND user_id = ?")
+      .get(id, userId) as Row | undefined;
+    return row ? toRecord(row) : null;
   }
 };

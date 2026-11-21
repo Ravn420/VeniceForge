@@ -1,11 +1,12 @@
-import { BrowserWindow, session } from "electron";
+import { BrowserWindow, shell } from "electron";
 export class BrowserAutomation {
   private win: BrowserWindow | null = null;
   async open(url: string): Promise<void> {
-    // venice.ai links run in the shared persisted partition ('persist:venice'),
-    // ensuring that authentication via OAuth or cookie import is available.
-    const isVenice = /(^|\.)venice\.ai$/i.test(new URL(url).hostname || "");
-    const partition = isVenice ? "persist:venice" : undefined;
+    const host = new URL(url).hostname || "";
+    if (/(^|\.)venice\.ai$/i.test(host)) {
+      await shell.openExternal(url);
+      return;
+    }
     if (this.win && !this.win.isDestroyed()) {
       await this.win.loadURL(url).catch(() => undefined); // redirects (e.g. venice.ai → /login) report ERR_ABORTED
       return;
@@ -13,7 +14,7 @@ export class BrowserAutomation {
     this.win = new BrowserWindow({
       width: 1200,
       height: 800,
-      webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true, allowRunningInsecureContent: false, ...(partition ? { partition } : {}) }
+      webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true, allowRunningInsecureContent: false }
     });
     await this.win.loadURL(url).catch(() => undefined);
   }

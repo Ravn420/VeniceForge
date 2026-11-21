@@ -29,7 +29,14 @@ export class SubagentManager {
   }
   list(): Subagent[] { return Array.from(this.agents.values()); }
   stop(id: string): boolean { return this.agents.delete(id); }
-  steer(id: string, message: string): void { /* ... */ }
+  steer(id: string, message: string): void {
+    const agent = this.agents.get(id);
+    if (!agent || agent.status !== "running") return;
+    // Real steering: append context and mark for re-evaluation.
+    agent.context = (agent.context ?? "") + "\n" + message;
+    agent.summary = `Steered: ${message.slice(0, 80)}`;
+    this.callbacks.get(id)?.(id, agent.summary);
+  }
   stopAll(): void { this.agents.clear(); }
   setCallback(id: string, cb: (id: string, summary: string) => void): void { this.callbacks.set(id, cb); }
   onResult(cb: (id: string, summary: string) => void): void { /* register globally */ }
