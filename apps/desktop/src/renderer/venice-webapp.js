@@ -19,13 +19,12 @@
         <button class="btn-ghost" type="button" data-webapp-open="${key}">Open in your browser</button>
       </header>
       <div class="venice-webapp-frame">
-        <webview id="venice-webview-${key}" class="venice-webview" src="${esc(target)}" partition="persist:venice" allowpopups webpreferences="contextIsolation=yes,nodeIntegration=no,sandbox=yes" aria-label="${esc(title)}"></webview>
-        <div class="venice-session-gate" data-webapp-gate="${key}" hidden>
-          <h2>Venice.ai web app</h2>
-          <p>Models are chosen inside Venice.ai. This studio does not call the API.</p>
-          <button class="btn-primary" type="button" data-webapp-launch="${key}">Open Venice.ai</button>
+        <webview id="venice-webview-${key}" class="venice-webview" partition="persist:venice" allowpopups webpreferences="contextIsolation=yes,nodeIntegration=no,sandbox=yes" aria-label="${esc(title)}"></webview>
+        <div class="venice-session-gate" data-webapp-gate="${key}">
+          <h2>Checking your browser…</h2>
+          <p>Venice.ai has no desktop app. A session that is already in your browser skips login.</p>
         </div>
-        <div class="venice-webapp-loading" data-webapp-status="${key}">Loading Venice.ai…</div>
+        <div class="venice-webapp-loading" data-webapp-status="${key}" hidden>Loading Venice.ai…</div>
         <button class="btn-ghost venice-webapp-retry" data-webapp-retry="${key}" type="button" hidden>Reload Venice.ai</button>
       </div>
     </section>`;
@@ -39,26 +38,29 @@
     const retry = document.querySelector(`[data-webapp-retry="${key}"]`);
     const open = document.querySelector(`[data-webapp-open="${key}"]`);
     const gate = document.querySelector(`[data-webapp-gate="${key}"]`);
-    const launch = document.querySelector(`[data-webapp-launch="${key}"]`);
     const canEmbed = !!(view && typeof view.reload === "function");
-    const openExternal = () => {
-      const browser = ctx?.forge?.browser;
-      if (browser?.open) {
-        browser.open(target).catch((error) => ctx?.notify?.("Could not open Venice.ai: " + error.message));
-        return;
-      }
-      window.open(target, "_blank", "noopener");
+    const signedIn = !!ctx?.state?.venice?.loggedIn;
+    const showGate = (title, body, label, action) => {
+      if (!gate) return;
+      gate.hidden = false;
+      gate.innerHTML = `<h2>${esc(title)}</h2><p>${esc(body)}</p><button class="btn-primary" type="button">${esc(label)}</button>`;
+      const button = gate.querySelector("button");
+      if (button) button.onclick = action;
+      if (status) status.hidden = true;
     };
     const showError = (message) => {
       if (status) { status.textContent = message; status.hidden = false; }
       if (retry) retry.hidden = false;
+      if (gate) gate.hidden = true;
     };
     const clearStatus = () => {
       if (status) status.hidden = true;
       if (retry) retry.hidden = true;
-    };
-    if (canEmbed && view) {
       if (gate) gate.hidden = true;
+    };
+    if (signedIn && canEmbed && view) {
+      if (gate) gate.hidden = true;
+      if (status) { status.hidden = false; status.textContent = "Opening your Venice.ai session…"; }
       view.addEventListener("dom-ready", clearStatus);
       view.addEventListener("did-finish-load", clearStatus);
       view.addEventListener("did-fail-load", (event) => {
@@ -69,25 +71,35 @@
         try { if (new URL(event.url).protocol !== "https:") event.preventDefault(); }
         catch { event.preventDefault(); }
       });
+      if (!view.src || view.src === "about:blank") view.src = target;
       try { if (!view.isLoading() && view.getURL().startsWith("https://venice.ai/")) clearStatus(); }
       catch { /* webview is still initializing */ }
-    } else if (gate) {
-      gate.hidden = false;
-      if (status) status.hidden = true;
-      const heading = gate.querySelector("h2");
-      const copy = gate.querySelector("p");
-      if (heading) heading.textContent = "Open Venice.ai";
-      if (copy) copy.textContent = "This studio uses Venice.ai’s own models and controls. Nothing is sent through the API.";
-      if (launch) launch.onclick = openExternal;
+    } else if (signedIn) {
+      const via = ctx.state.venice.source ? ` in ${ctx.state.venice.source}` : "";
+      showGate(
+        "Already signed in",
+        `Login skipped${via}. Venice.ai opens in the browser you already use.`,
+        "Open Venice.ai",
+        () => (window.enterVenice ? window.enterVenice(target) : window.open(target, "_blank", "noopener"))
+      );
     } else {
-      showError("The Venice web view is unavailable in this build.");
+      showGate(
+        "Sign in with your browser",
+        "Venice.ai has no desktop app. If you are already signed in there, the login page is skipped and you go straight in.",
+        "Continue in your browser",
+        () => (window.enterVenice ? window.enterVenice(target) : window.open("https://venice.ai/sign-in", "_blank", "noopener"))
+      );
     }
-    if (retry && canEmbed && view) retry.onclick = () => {
+    if (retry && view && canEmbed) retry.onclick = () => {
       retry.hidden = true;
       if (status) { status.hidden = false; status.textContent = "Reloading Venice.ai…"; }
       view.reload();
     };
-    if (open) open.onclick = openExternal;
+    if (open) open.onclick = () => {
+      if (window.enterVenice) window.enterVenice(target);
+      else if (window.openVeniceSurface) window.openVeniceSurface(target);
+      else window.open(signedIn ? target : "https://venice.ai/sign-in", "_blank", "noopener");
+    };
   }
 
   window.VeniceWebApp = { render, wire };

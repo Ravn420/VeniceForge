@@ -40,6 +40,7 @@ let C = null;                    // latest ctx from wire()
 let bound = false;               // document-level delegated listeners installed
 let subResultsBound = false;     // subagents.onResult subscribed
 let modelsLoading = false;
+let modelsFailed = false;
 let gitLoading = false;
 let chatInFlight = false;
 let termSubscribedId = null;     // terminal id whose onData/onExit are bound
@@ -48,7 +49,6 @@ let filterQ = "";
 let treeFocusPath = null;
 let activeTpl = null;
 let subModel = null;             // subagent model pick (defaults to state.model)
-const modelQuery = { "model-select": "", "sub-model-select": "" };
 const collapsed = new Set();     // collapsed dir paths in the tree
 const lastSaved = new Map();     // path -> saved content (dirty tracking)
 const termHistory = [];
@@ -299,39 +299,46 @@ function closeTab(path) {
 /* ============================================================
    INSPECTOR — Agent / Subagents / Git / API
    ============================================================ */
-function modelOptionsHTML(S, selected, dev) {
-  const modelsAll = (S.models || []).filter((m) => m && m.surface !== "image" && m.surface !== "video" && m.surface !== "music");
-  if (!modelsAll.length) return `<option value="">Loading text models…</option>`;
-  const q = (modelQuery[dev] || "").trim().toLowerCase();
-  const models = q
-    ? modelsAll.filter((m) => m.id === selected || (m.name || m.id).toLowerCase().includes(q) || String(m.id).toLowerCase().includes(q))
-    : modelsAll;
-  const list = models.length ? models : modelsAll;
-  const sel = list.some((m) => m.id === selected) ? selected : list[0].id;
-  const option = (m) => `<option value="${E(m.id)}"${m.id === sel ? " selected" : ""}>${E(m.name || m.id)}</option>`;
-  const group = (label, rows) => rows.length ? `<optgroup label="${label}">${rows.map(option).join("")}</optgroup>` : "";
-  return group("No credit cost", list.filter((m) => !m.usesCredits)) + group("Uses credits", list.filter((m) => m.usesCredits));
+function modelChoices(S) {
+  const list = [];
+  for (const m of S.models || []) {
+    if (m.surface === "image" || m.surface === "video") continue;
+    const id = m.id || m.name;
+    if (!id || list.some((x) => x.id === id)) continue;
+    // Prefer the explicit free label so dropdowns show "available · free / no credit cost"
+    const name = m.label || (m.free ? `${m.name || id} (free)` : (m.name || m.friendly_name || id));
+    list.push({ id, name, free: !!m.free });
+  }
+  if (!list.length) list.push({ id: S.model || "text", name: modelsFailed ? "Models unavailable" : "Loading models…" });
+  return list;
+}
+
+function modelOptionsHTML(S, selected) {
+  const choices = modelChoices(S);
+  const sel = choices.some((c) => c.id === selected) ? selected : choices[0].id;
+  return choices.map((c) => `<option value="${E(c.id)}"${c.id === sel ? " selected" : ""}>${E(c.name)}</option>`).join("");
 }
 
 function selectBoxHTML(devName, selected, label) {
   return `<div class="select-box"><span data-dev="${devName}-label" style="pointer-events:none">${E(selected || "model")}</span>` +
-    `<select data-dev="${devName}" title="${E(label)}">${modelOptionsHTML(C?.state || {}, selected, devName)}</select></div>`;
+    `<select data-dev="${devName}" title="${E(label)}">${modelOptionsHTML(C?.state || {}, selected)}</select></div>`;
 }
 
-function modelFilterHTML(devName) {
-  const n = ((C?.state?.models) || []).filter((m) => m && m.surface !== "image" && m.surface !== "video" && m.surface !== "music").length;
-  return `<input class="model-filter" data-dev="model-filter" data-for="${devName}" type="search" placeholder="Filter models" value="${E(modelQuery[devName] || "")}"${n < 12 ? " hidden" : ""} />`;
+function modelLabel(S) {
+  const hit = modelChoices(S).find((c) => c.id === S.model);
+  return hit?.name || S.model || "Assistant";
 }
 
 function chatLogHTML(S) {
-  const rows = (S.chat || []).map((m) => {
-    const kind = m.role === "user" ? "user" : m.role === "action" ? "action" : "assistant";
-    const who = kind === "user" ? "You" : kind === "action" ? "Action" : "Assistant";
-    return `<article class="dev-msg ${kind}"><div class="who">${who}${m.meta ? " · " + E(m.meta) : ""}</div><div class="body">${E(m.text)}</div></article>`;
-  });
-  if (chatInFlight) rows.push(`<article class="dev-msg action live"><div class="who">Action</div><div class="body">Waiting on ${E(S.model || "the model")}</div></article>`);
-  if (!rows.length) return `<div class="dev-empty">Your messages, replies, and actions show up here.</div>`;
-  return rows.join("");
+  if (!S.chat.length) {
+    return `<div class="dev-empty"><div class="big">AI Dev Studio</div><div class="sub">Ask for an edit. Everything you send, and every reply and action, stays in this feed.</div></div>`;
+  }
+  return S.chat.map((m) => {
+    if (m.role === "action") return `<div class="dev-turn action"><span>${E(m.text)}</span></div>`;
+    const who = m.role === "user" ? "You" : (m.meta === "error" ? "Assistant" : (m.meta || "Assistant"));
+    const cls = m.role === "user" ? "user" : (m.meta === "error" ? "assistant is-error" : "assistant");
+    return `<div class="dev-turn ${cls}${m.pending ? " is-pending" : ""}"><div class="who">${E(who)}</div><div class="body">${E(m.text)}</div></div>`;
+  }).join("");
 }
 
 function subListHTML(S) {
@@ -385,14 +392,15 @@ function apiPanelHTML(S) {
   const running = S.subagents.filter((a) => a.status === "running").length;
   const kv = (k, v) => `<div class="kv"><span class="k">${E(k)}</span><span class="v">${E(v)}</span></div>`;
   return `<div class="field-label">Session</div>` +
-    kv("Model access", "Inside Venice Forge") +
+    kv("Model access", "In-app + Venice.ai web app") +
     kv("Model", S.model || "—") +
-    kv("Music models", "Music page only") +
+    kv("Chat surface", VENICE_CHAT_URL) +
     kv("Chat turns", String(S.chat.length)) +
     kv("Subagents", `${running}/${S.subagents.length} running`) +
     kv("Tokens", `${S.usage.in} in · ${S.usage.out} out`) +
     `<div class="field-label">Routing</div>` +
-    `<div class="code-block">Every generation stays in Venice Forge.\nSong models are not used on this page.</div>`;
+    `<div class="code-block">Completions run in-app first; the Venice.ai chat web app${"\n"}(${E(VENICE_CHAT_URL)}) is the fallback for complex tasks.</div>` +
+    `<button class="btn-ghost" data-action="open-venice-chat">Open Venice.ai chat</button>`;
 }
 
 function inspectorBodyHTML(S) {
@@ -402,20 +410,16 @@ function inspectorBodyHTML(S) {
     `<button class="mode-chip${S.agentMode === k ? " active" : ""}" data-action="set-mode" data-mode="${k}" aria-label="${k} mode">${m.chip}</button>`).join("");
   return `<div data-dev="panel-Agent" class="${show("Agent")}">` +
       `<div class="agent-mode-row">${modeChips}</div>` +
-      `<div class="field-label">Model</div>${selectBoxHTML("model-select", S.model, "Model")}${modelFilterHTML("model-select")}` +
-      `<div class="field-label">Task</div>` +
-      `<textarea class="agent-input" data-dev="task" placeholder="Describe what to build, fix or plan…"></textarea>` +
+      `<p class="dev-agent-note">Requests go through the bar under the feed.</p>` +
       `<div class="field-label">Max tokens</div>` +
       `<div class="stepper"><span class="v" data-dev="tok-val">${S.maxTokens}</span>` +
       `<div class="ctrl"><button data-action="tokens" data-delta="-250" title="Fewer tokens">−</button>` +
       `<button data-action="tokens" data-delta="250" title="More tokens">+</button></div></div>` +
-      `<button class="btn-primary" data-action="send" data-dev="send-btn">Send task</button>` +
-      `<div class="chat-log" data-dev="chat-log">${chatLogHTML(S)}</div>` +
     `</div>` +
     `<div data-dev="panel-Subagents" class="${show("Subagents")}">` +
       `<div class="field-label">Goal</div>` +
       `<div class="input-box"><input data-dev="sub-goal" placeholder="Describe an autonomous task…" /></div>` +
-      `<div class="field-label">Model</div>${selectBoxHTML("sub-model-select", subModel || S.model, "Subagent model")}${modelFilterHTML("sub-model-select")}` +
+      `<div class="field-label">Model</div>${selectBoxHTML("sub-model-select", subModel || S.model, "Subagent model")}` +
       `<button class="btn-primary" data-action="spawn" data-dev="spawn-btn">Spawn subagent</button>` +
       `<div class="field-label">Subagents (${S.subagents.length})</div>` +
       `<div data-dev="sub-list">${subListHTML(S)}</div>` +
@@ -436,61 +440,25 @@ function setPanel(name) {
   });
 }
 
-function chatKind(role) {
-  return role === "user" ? "user" : role === "action" ? "action" : "assistant";
+function noteAction(text) {
+  const S = C?.state; if (!S || !text) return;
+  S.chat.push({ role: "action", text });
+  syncChat();
 }
 
-function chatWho(kind, meta) {
-  const who = kind === "user" ? "You" : kind === "action" ? "Action" : "Assistant";
-  return meta ? who + " · " + meta : who;
-}
-
-function chatNode(message) {
-  const kind = chatKind(message.role);
-  const article = document.createElement("article");
-  article.className = "dev-msg " + kind + (message.live ? " live" : "");
-  const who = document.createElement("div");
-  who.className = "who";
-  who.textContent = chatWho(kind, message.meta);
-  const body = document.createElement("div");
-  body.className = "body";
-  body.textContent = message.text || "";
-  article.append(who, body);
-  return article;
-}
-
-function stickFeed(el) {
-  if (!el) return;
-  if (el.scrollHeight - el.scrollTop - el.clientHeight < 96) el.scrollTop = el.scrollHeight;
+function readableError(err) {
+  const msg = String(err?.message || err || "The model did not reply.");
+  if (msg.includes("<") || /cloudflare|attention required/i.test(msg) || msg.length > 420) {
+    return "Venice blocked this reply before it could run inside Venice Forge. Nothing was opened on the Venice site, and nothing was substituted.";
+  }
+  return msg;
 }
 
 function syncChat() {
   const el = q('[data-dev="chat-log"]');
   if (!el || !C?.state) return;
-  const messages = C.state.chat || [];
-  el.replaceChildren();
-  if (!messages.length) {
-    const empty = document.createElement("div");
-    empty.className = "dev-empty";
-    empty.textContent = "Your messages, replies, and actions show up here.";
-    el.append(empty);
-    return;
-  }
-  for (const message of messages) el.append(chatNode(message));
-  stickFeed(el);
-}
-
-function pushTurn(message) {
-  const S = C?.state;
-  if (!S) return null;
-  S.chat.push(message);
-  const el = q('[data-dev="chat-log"]');
-  if (!el) return null;
-  el.querySelector(".dev-empty")?.remove();
-  const node = chatNode(message);
-  el.append(node);
-  stickFeed(el);
-  return node;
+  el.innerHTML = chatLogHTML(C.state);
+  el.scrollTop = el.scrollHeight;
 }
 function syncSubs() { const el = q('[data-dev="sub-list"]'); if (el && C?.state) el.innerHTML = subListHTML(C.state); }
 function syncApi() { const el = q('[data-dev="panel-API"]'); if (el && C?.state) el.innerHTML = apiPanelHTML(C.state); }
@@ -605,155 +573,79 @@ function syncStatusbar() {
    ACTIONS — chat / subagents / git / api
    ============================================================ */
 function buildMessages(S, task) {
-  const bits = [task];
-  if (S.pickedFileName && S.pickedFileText) bits.push("Attached file " + S.pickedFileName + ":\n" + clip(S.pickedFileText, 8000));
-  if (S.pickedFolder && S.folderListing && S.folderListing.length) bits.push("Folder " + S.pickedFolder + ":\n" + S.folderListing.slice(0, 40).join("\n"));
-  return bits.join("\n\n");
-}
-
-function note(text) {
-  pushTurn({ role: "action", text });
-}
-
-function paintPicks() {
-  const S = C?.state; if (!S) return;
-  const folder = q('[data-dev="folder-label"]');
-  const file = q('[data-dev="file-label"]');
-  if (folder) folder.textContent = S.pickedFolder || "Folder";
-  if (file) file.textContent = S.pickedFileName || "File";
-}
-
-function pickFolder() {
-  if (C?.forge?.files?.openDialog && C.openProject) {
-    Promise.resolve(C.openProject()).then(() => {
-      const S = C?.state; if (!S) return;
-      S.pickedFolder = String(S.projectDir || "").split(/[/\\]/).filter(Boolean).pop() || "Folder";
-      S.folderListing = parseTree(S.tree).filter((en) => !en.dir).slice(0, 40).map((en) => en.path);
-      note("Opened folder " + (S.projectDir || S.pickedFolder) + (S.folderListing.length ? "\n" + S.folderListing.join("\n") : ""));
-      paintPicks();
-    }).catch(() => {});
-    return;
+  const mode = MODES[S.agentMode] || MODES.agent;
+  const parts = [
+    "You are the AI pair programmer inside Venice Forge, an Electron dev studio.",
+    "Project root: " + (S.projectDir || "(no folder open)"),
+  ];
+  if (S.activeFile && S.openFiles.has(S.activeFile)) {
+    parts.push(`Active file: ${S.activeFile}\n\`\`\`\n${clip(S.openFiles.get(S.activeFile), 4000)}\n\`\`\``);
   }
-  q('[data-dev="folder-input"]')?.click();
+  parts.push(mode.prompt);
+  const sys = parts.filter(Boolean).join("\n\n");
+  const hist = S.chat.slice(-12).map((m) => ({ role: m.role === "user" ? "user" : "assistant", content: String(m.text || "") }));
+  return [{ role: "system", content: sys }, ...hist];
 }
 
-function pickFile() {
-  q('[data-dev="file-input"]')?.click();
+function feedContext(S, task) {
+  const mode = MODES[S.agentMode] || MODES.agent;
+  const parts = [mode.prompt];
+  if (S.projectDir) parts.push("Project: " + S.projectDir);
+  if (S.activeFile && S.openFiles.has(S.activeFile)) {
+    parts.push("Active file: " + S.activeFile + "\n" + clip(S.openFiles.get(S.activeFile), 4000));
+  }
+  parts.push(task);
+  return parts.filter(Boolean).join("\n\n");
 }
 
-async function onFolderInput(input) {
-  const files = [...(input.files || [])];
-  input.value = "";
-  if (!files.length || !C?.state) return;
-  const S = C.state;
-  const root = String(files[0].webkitRelativePath || files[0].name).split("/")[0] || "Folder";
-  S.pickedFolder = root;
-  S.folderListing = files.slice(0, 40).map((file) => file.webkitRelativePath || file.name);
-  note("Opened folder " + root + "\n" + S.folderListing.join("\n"));
-  paintPicks();
-}
-
-async function onFileInput(input) {
-  const file = input.files && input.files[0];
-  input.value = "";
-  if (!file || !C?.state) return;
-  const S = C.state;
-  let text = "";
-  try { text = await file.text(); } catch { text = ""; }
-  S.pickedFileName = file.name;
-  S.pickedFileText = text.slice(0, 8000);
-  note("Attached " + file.name + (text ? "\n" + clip(text, 1200) : ""));
-  paintPicks();
+async function requestEdit(S, task) {
+  const F = C?.forge;
+  // Prefer in-app processor for free web-app models (no HTTP API).
+  if (F?.venice && typeof F.venice.processCompletion === "function") {
+    const response = await F.venice.processCompletion(task, S.model);
+    if (response) return String(response);
+  }
+  // No API fallback — free web-app models are usable via the official Venice surfaces.
+  throw new Error("Open the Venice.ai web app to continue with this free model.");
 }
 
 async function sendChat() {
   const S = C?.state; if (!S || chatInFlight) return;
   const ta = q('[data-dev="task"]');
   const task = (ta?.value || "").trim();
-  if (!task) return;
-  if (!S.model) { note("Pick a model first."); return; }
-  pushTurn({ role: "user", text: task });
-  pushTurn({ role: "action", text: "Sent to " + S.model });
-  const reply = { role: "assistant", text: "", live: true };
-  const node = pushTurn(reply);
-  const body = node?.querySelector(".body");
-  const who = node?.querySelector(".who");
+  if (!task) { C?.notify?.("Describe the edit first"); return; }
+  if (!S.model) { C?.notify?.("Pick a model first"); return; }
+  if (S.activeFile) S.chat.push({ role: "action", text: "Using " + S.activeFile });
+  S.chat.push({ role: "user", text: task });
+  const pending = { role: "assistant", text: "Running…", meta: modelLabel(S), pending: true };
+  S.chat.push(pending);
   if (ta) ta.value = "";
   const btn = q('[data-dev="send-btn"]');
   chatInFlight = true;
   if (btn) btn.disabled = true;
-  let frame = 0;
-  let primed = false;
-  const paint = () => {
-    frame = 0;
-    if (body) body.textContent = reply.text;
-    stickFeed(q('[data-dev="chat-log"]'));
-  };
-  const add = (bit) => {
-    reply.text += bit;
-    if (!primed) {
-      primed = true;
-      paint();
-      return;
-    }
-    if (!frame) frame = requestAnimationFrame(paint);
-  };
+  if (ta) ta.disabled = true;
+  syncChat();
   try {
-    const prior = S.chat
-      .filter((m) => m !== reply && (m.role === "user" || m.role === "assistant") && String(m.text || "").trim())
-      .slice(0, -1)
-      .slice(-10)
-      .map((m) => ({ role: m.role, content: String(m.text || "").slice(0, 4000) }));
-    const res = await fetch("/api/studio/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kind: "text", modelId: S.model, prompt: buildMessages(S, task), messages: prior, stream: true }),
-    });
-    if (!res.ok || !res.body) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.message || data.error || "Venice did not return a reply.");
-    }
-    const reader = res.body.getReader();
-    const dec = new TextDecoder();
-    let buf = "";
-    let failed = "";
-    while (true) {
-      const step = await reader.read();
-      if (step.done) break;
-      buf += dec.decode(step.value, { stream: true });
-      let cut;
-      while ((cut = buf.indexOf("\n")) >= 0) {
-        const line = buf.slice(0, cut).trim();
-        buf = buf.slice(cut + 1);
-        if (!line) continue;
-        let evt = null;
-        try { evt = JSON.parse(line); } catch { evt = null; }
-        if (!evt) continue;
-        if (evt.modelName) {
-          reply.meta = evt.modelName;
-          if (who) who.textContent = chatWho("assistant", reply.meta);
-        }
-        if (evt.text) add(evt.text);
-        if (evt.error) failed = String(evt.error);
-      }
-    }
-    if (frame) cancelAnimationFrame(frame);
-    paint();
-    if (!reply.text.trim()) throw new Error(failed || "Venice did not return a reply.");
+    pending.text = await requestEdit(S, task);
+    pending.pending = false;
+    pending.meta = modelLabel(S);
   } catch (err) {
-    if (frame) cancelAnimationFrame(frame);
-    if (!reply.text) {
-      const at = S.chat.lastIndexOf(reply);
-      if (at >= 0) S.chat.splice(at, 1);
-      node?.remove();
+    // Free web-app models: hand off to the official Venice surface so they are usable.
+    const F = C?.forge;
+    if (F?.venice) {
+      await handOffToWebApp(S, F, task);
+      pending.text = "Opened in the Venice.ai web app (free model). Continue there — no credits used.";
+      pending.meta = "web app · free";
+    } else {
+      pending.text = readableError(err);
+      pending.meta = "error";
     }
-    pushTurn({ role: "action", text: "Could not finish — " + (err?.message || err) });
+    pending.pending = false;
   } finally {
-    reply.live = false;
-    node?.classList.remove("live");
     chatInFlight = false;
     if (btn) btn.disabled = false;
-    if (body && reply.text) body.textContent = reply.text;
+    if (ta) { ta.disabled = false; ta.focus(); }
+    syncChat(); syncApi(); syncStatusbar();
   }
 }
 
@@ -762,12 +654,33 @@ function pushError(S, err) {
   S.chat.push({ role: "assistant", text: "Could not process completion — " + (err?.message || err), meta: "error" });
 }
 
-async function handOffToWebApp() {
-  C?.notify?.("Generation stays in Venice Forge.");
-}
-
-async function openVeniceChat() {
-  C?.notify?.("Chat stays in Venice Forge. Music models are only on the Music page.");
+/** Hand a task off to the Venice.ai web app (SSO + deep link). */
+async function handOffToWebApp(S, F, task) {
+  // Ensure SSO first — if cookies are already in the session this is a no-op.
+  if (typeof F.venice.loginState === "function") {
+    try {
+      const st = await F.venice.loginState();
+      if (!st?.loggedIn) {
+        if (typeof F.venice.openBrowserLogin === "function") await F.venice.openBrowserLogin();
+        S.chat.push({
+          role: "assistant",
+          text: "Venice.ai opens in your browser. If that browser is already signed in, the login page is skipped — send the task again and it opens straight away.",
+          meta: "web app"
+        });
+        return;
+      }
+    } catch {}
+  }
+  // Hand the task to the Venice.ai web app — the app's model surface.
+  const link = typeof F.venice.chatLink === "function"
+    ? await F.venice.chatLink(task, S.model)
+    : VENICE_CHAT_URL;
+  await F.browser.open(link);
+  S.chat.push({
+    role: "assistant",
+    text: `Opened your task in the Venice.ai web app (${link}). Pick “${S.model}” there and continue — results paste straight back here.`,
+    meta: "web app"
+  });
 }
 
 async function spawnSub() {
@@ -782,12 +695,13 @@ async function spawnSub() {
   try {
     const id = await F.subagents.spawn(goal, model, S.projectDir || undefined);
     S.subagents.unshift({ id: String(id), goal, model, status: "running", summary: "", context: S.projectDir });
+    S.chat.push({ role: "action", text: "Spawned a subagent · " + (model || "model") + " · " + clip(goal, 80) });
     if (inp) inp.value = "";
     C?.notify?.("Subagent spawned");
   } catch (err) { C?.notify?.("Spawn failed — " + (err?.message || err)); }
   finally {
     if (btn) { btn.disabled = false; btn.textContent = "Spawn subagent"; }
-    syncSubs(); syncApi();
+    syncSubs(); syncApi(); syncChat();
   }
 }
 
@@ -795,8 +709,11 @@ async function stopSub(id) {
   const S = C?.state, F = C?.forge; if (!S || !F?.subagents || !id) return;
   try { await F.subagents.stop(id); } catch {}
   const a = S.subagents.find((s) => s.id === id);
-  if (a) a.status = "stopped";
-  syncSubs(); syncApi();
+  if (a && a.status !== "stopped") {
+    a.status = "stopped";
+    S.chat.push({ role: "action", text: "Stopped subagent · " + clip(a.goal, 80) });
+  } else if (a) a.status = "stopped";
+  syncSubs(); syncApi(); syncChat();
 }
 
 async function loadGit(force) {
@@ -830,22 +747,33 @@ async function doCommit() {
 
 async function loadModels() {
   const S = C?.state; if (!S) return;
-  if (!S.modelsLoaded) {
+  if (!Array.isArray(S.models) || !S.models.length) {
     if (modelsLoading) return;
     modelsLoading = true;
     try {
-      const res = await fetch("/api/studio/models?kind=text");
-      const data = await res.json();
-      if (Array.isArray(data.models) && data.models.length) {
-        S.models = data.models.map((m) => ({ id: m.id, name: m.name, surface: "chat", usesCredits: m.usesCredits === true }));
-        S.modelsLoaded = true;
-        if (!S.models.some((m) => m.id === S.model)) {
-          const free = S.models.find((m) => !m.usesCredits);
-          S.model = (free || S.models[0]).id;
+      const F = C?.forge;
+      if (F?.venice) {
+        const fn = typeof F.venice.chatModels === "function" ? F.venice.chatModels : F.venice.models;
+        const ms = fn ? await fn.call(F.venice) : null;
+        if (Array.isArray(ms) && ms.length) {
+          // Ensure free web-app models are marked available
+          S.models = ms.map((m) => ({ ...m, free: m.free !== false, available: true }));
         }
       }
     } catch {}
+    if (!S.models.length) {
+      // Hard fallback: static free web-app catalog so dropdowns are never empty
+      S.models = [
+        { id: "venice-uncensored", name: "Venice Uncensored", label: "Venice Uncensored (free)", free: true, surface: "chat" },
+        { id: "venice-coder", name: "Venice Coder", label: "Venice Coder (free)", free: true, surface: "chat" },
+        { id: "venice-reasoner", name: "Venice Reasoner", label: "Venice Reasoner (free)", free: true, surface: "chat" },
+        { id: "venice-audio", name: "Venice Audio Studio", label: "Venice Audio Studio (free)", free: true, surface: "audio" }
+      ];
+    }
     modelsLoading = false;
+  }
+  if (S.models.length && !S.models.some((m) => (m.id || m.name) === S.model)) {
+    S.model = S.models[0].id || S.models[0].name;
   }
   syncModelSelects(); syncStatusbar(); syncApi();
 }
@@ -869,21 +797,19 @@ function syncModelSelects() {
     const sel = q(`[data-dev="${dev}"]`);
     if (!sel) continue;
     const current = dev === "model-select" ? S.model : (subModel || S.model);
-    sel.innerHTML = modelOptionsHTML(S, current, dev);
+    sel.innerHTML = modelOptionsHTML(S, current);
     const value = sel.value;
     if (dev === "model-select") S.model = value;
     else subModel = value;
     const label = q(`[data-dev="${dev}-label"]`);
-    if (label) label.textContent = sel.selectedOptions?.[0]?.textContent || value;
-    const filter = q(`[data-dev="model-filter"][data-for="${dev}"]`);
-    const count = (S.models || []).filter((m) => m && m.surface !== "image" && m.surface !== "video" && m.surface !== "music").length;
-    if (filter) filter.hidden = count < 12;
+    if (label) label.textContent = value;
   }
 }
 
 function buildCurl() {
+  const S = C?.state || {};
   const task = (q('[data-dev="task"]')?.value || "").trim();
-  return task || "Venice Forge task";
+  return F?.venice?.chatLink ? F.venice.chatLink(task, S.model) : VENICE_CHAT_URL;
 }
 
 async function copyCurl() {
@@ -899,7 +825,16 @@ async function copyCurl() {
       t.remove();
     } catch {}
   }
-  C?.notify?.(ok ? "Task copied" : "Copy failed");
+  C?.notify?.(ok ? "Venice.ai link copied" : "Copy failed");
+}
+
+async function openVeniceChat() {
+  const S = C?.state, F = C?.forge; if (!F?.browser) return;
+  const task = (q('[data-dev="task"]')?.value || "").trim();
+  const link = buildCurl();
+  try { await F.browser.open(link); }
+  catch (err) { C?.notify?.("Could not open Venice.ai — " + (err?.message || err)); return; }
+  if (task && S) S.chat.push({ role: "assistant", text: `Opened in Venice.ai web app: ${link}`, meta: "web app" });
 }
 
 function useTemplate(id) {
@@ -908,6 +843,7 @@ function useTemplate(id) {
   const ta = q('[data-dev="task"]');
   if (ta) { ta.value = tpl.prompt; ta.focus(); }
   S.agentMode = tpl.mode;
+  noteAction("Loaded template · " + tpl.name);
   document.querySelectorAll('[data-dev="panel-Agent"] .mode-chip').forEach((b) =>
     b.classList.toggle("active", b.dataset.mode === tpl.mode));
   activeTpl = id;
@@ -939,17 +875,43 @@ async function createNewProject() {
 function renderWorkspace(ctx) {
   C = ctx; prepState(ctx.state);
   const S = ctx.state;
-  return `<div data-dev="root" class="dev-stream">` +
-    `<div class="dev-feed" data-dev="chat-log">${chatLogHTML(S)}</div>` +
-    `<form class="dev-bar" data-dev="bar">` +
-      `<button type="button" class="dev-pick" data-action="pick-folder" title="Choose a folder">${FOLDER_OPEN_SVG}<span data-dev="folder-label">${E(S.pickedFolder || "Folder")}</span></button>` +
-      `<button type="button" class="dev-pick" data-action="pick-file" title="Choose a file">${FILE_SVG}<span data-dev="file-label">${E(S.pickedFileName || "File")}</span></button>` +
-      `<select class="dev-model" data-dev="model-select" aria-label="Model">${modelOptionsHTML(S, S.model, "model-select")}</select>` +
-      `<textarea data-dev="task" rows="1" placeholder="Message" aria-label="Message"></textarea>` +
-      `<button type="button" class="dev-send" data-action="send" data-dev="send-btn">Send</button>` +
-    `</form>` +
-    `<input data-dev="folder-input" type="file" webkitdirectory multiple hidden>` +
-    `<input data-dev="file-input" type="file" hidden>` +
+  const proj = S.projectDir ? shortName(S.projectDir) : "No project";
+  const templates = TEMPLATES.map((t) =>
+    `<div class="template-card${activeTpl === t.id ? " active" : ""}" data-dev="tpl" data-action="use-template" data-tpl="${t.id}">` +
+    `<div class="t-name">${E(t.name)}</div><div class="t-sub">${E(t.sub)}</div></div>`).join("");
+  return `<div data-dev="root" style="flex:1 1 auto;min-height:0;height:100%;display:flex;flex-direction:column">` +
+    `<div class="workspace" style="flex:1 1 auto;min-height:0">` +
+      `<aside class="explorer" aria-label="Projects and files">` +
+        `<div class="panel-head"><span class="panel-title" title="${E(S.projectDir || "")}">${E(proj)}</span>` +
+        `<div class="panel-actions">` +
+        `<button class="icon-btn" data-action="open-project" title="Open folder…" aria-label="Open folder">${FOLDER_OPEN_SVG}</button>` +
+        `<button class="icon-btn" data-action="new-project" title="New project" aria-label="New project">${NEW_PROJECT_SVG}</button></div></div>` +
+        `<label class="search">${SEARCH_SVG}<input data-dev="tree-search" placeholder="Find file…" /></label>` +
+        `<div class="explorer-scroll">` +
+          `<div class="section-label"><span>Files</span><span data-dev="tree-count">0</span></div>` +
+          `<div class="file-tree" data-dev="tree" role="tree" aria-label="Project files">${treeListHTML(S)}</div>` +
+          `<div class="divider"></div>` +
+          `<div class="section-label"><span>Workflow templates</span></div>` +
+          templates +
+        `</div>` +
+      `</aside>` +
+      `<section class="center dev-stage">` +
+        `<div class="dev-thread" data-dev="chat-log">${chatLogHTML(S)}</div>` +
+        `<form class="dev-bar" data-dev="composer" onsubmit="return false">` +
+          `<label class="dev-model"><select data-dev="model-select" aria-label="Model">${modelOptionsHTML(S, S.model)}</select></label>` +
+          `<input data-dev="task" placeholder="Ask for an edit…" autocomplete="off" />` +
+          `<button type="button" class="dev-send" data-action="send" data-dev="send-btn">Send</button>` +
+        `</form>` +
+      `</section>` +
+      `<aside class="inspector">` +
+        `<div class="tab-strip" data-dev="panel-tabs">` +
+          ["Agent", "Subagents", "Git", "API"].map((p) =>
+            `<button class="${S.activePanel === p ? "active" : ""}" data-action="panel" data-panel="${p}">${p}</button>`).join("") +
+        `</div>` +
+        `<div class="inspector-scroll" data-dev="inspector-body">${inspectorBodyHTML(S)}</div>` +
+      `</aside>` +
+    `</div>` +
+    terminalHTML(S) +
   `</div>`;
 }
 
@@ -972,7 +934,8 @@ function subscribeSubResults() {
       const S = C?.state; if (!S) return;
       const a = S.subagents.find((s) => s.id === id);
       if (a) { a.status = "done"; a.summary = summary || a.summary; }
-      syncSubs(); syncApi();
+      S.chat.push({ role: "action", text: "Subagent finished" + (summary ? " · " + clip(summary, 160) : "") });
+      syncSubs(); syncApi(); syncChat();
     });
   } catch { subResultsBound = false; }
 }
@@ -986,9 +949,11 @@ function bindDelegates() {
     if (!el || !el.closest('[data-dev="root"]')) return;
     const S = C?.state; if (!S) return;
     const F = C?.forge;
-    if (el.dataset.action === "send") { sendChat(); return; }
-    if (el.dataset.action === "pick-folder") { pickFolder(); return; }
-    if (el.dataset.action === "pick-file") { pickFile(); return; }
+    const needsForge = el.dataset.action === "open-project" || el.dataset.action === "new-project"
+      || el.dataset.action === "open-file" || el.dataset.action === "spawn" || el.dataset.action === "stop-sub"
+      || el.dataset.action === "commit" || el.dataset.action === "git-refresh" || el.dataset.action === "git-init"
+      || el.dataset.action === "open-venice-chat" || el.dataset.action === "activate-tab" || el.dataset.action === "close-tab";
+    if (needsForge && !F) { C?.notify?.("That action is available in the desktop studio."); return; }
     if (el.matches('.tree-item[role="treeitem"]')) focusTreePath(el.dataset.path);
     switch (el.dataset.action) {
       case "open-project":
@@ -1015,6 +980,7 @@ function bindDelegates() {
         S.agentMode = el.dataset.mode;
         document.querySelectorAll('[data-dev="panel-Agent"] .mode-chip').forEach((b) =>
           b.classList.toggle("active", b.dataset.mode === S.agentMode));
+        noteAction("Mode · " + (MODES[S.agentMode]?.chip || S.agentMode));
         break;
       case "send": sendChat(); break;
       case "tokens": {
@@ -1028,7 +994,7 @@ function bindDelegates() {
       case "commit": doCommit(); break;
       case "git-refresh": loadGit(true); break;
       case "git-init":
-        if (S.projectDir && F?.git) F.git.init(S.projectDir)
+        if (S.projectDir) F.git.init(S.projectDir)
           .then(() => { C.notify?.("Repository initialised"); return loadGit(true); })
           .catch((err) => C.notify?.("Init failed — " + (err?.message || err)));
         break;
@@ -1048,18 +1014,10 @@ function bindDelegates() {
 
   document.addEventListener("change", (e) => {
     const t = e.target;
-    if (!t.matches || !t.closest('[data-dev="root"]')) return;
+    if (!t.matches || !t.matches('[data-dev="model-select"]')) return;
     const S = C?.state; if (!S) return;
-    if (t.matches('[data-dev="folder-input"]')) { onFolderInput(t); return; }
-    if (t.matches('[data-dev="file-input"]')) { onFileInput(t); return; }
-    if (!t.matches('[data-dev="model-select"], [data-dev="sub-model-select"]')) return;
-    const dev = t.getAttribute("data-dev");
-    if (dev === "model-select") S.model = t.value;
-    else subModel = t.value;
-    const label = q(`[data-dev="${dev}-label"]`);
-    if (label) label.textContent = t.selectedOptions?.[0]?.textContent || t.value;
-    syncStatusbar();
-    syncApi();
+    S.model = t.value;
+    syncStatusbar(); syncApi();
   });
 
   document.addEventListener("input", (e) => {
@@ -1067,18 +1025,7 @@ function bindDelegates() {
     if (!t.closest || !t.closest('[data-dev="root"]')) return;
     const S = C?.state; if (!S) return;
     if (t.matches('[data-dev="tree-search"]')) { filterQ = t.value; syncTree(); return; }
-    if (t.matches('[data-dev="model-filter"]')) {
-      const dev = t.dataset.for;
-      if (!dev || !modelQuery || !(dev in modelQuery)) return;
-      modelQuery[dev] = t.value;
-      const sel = q(`[data-dev="${dev}"]`);
-      if (!sel) return;
-      const current = dev === "model-select" ? S.model : (subModel || S.model);
-      sel.innerHTML = modelOptionsHTML(S, current, dev);
-      const label = q(`[data-dev="${dev}-label"]`);
-      if (label) label.textContent = sel.selectedOptions?.[0]?.textContent || current || "model";
-      return;
-    }
+    if (t.matches('[data-dev="model-select"]')) return;
     if (t.matches('[data-dev="editor"]') && S.activeFile) {
       S.openFiles.set(S.activeFile, t.value);
       syncGutter(); syncStatusbar(); syncTabs();
@@ -1152,7 +1099,7 @@ function bindDelegates() {
         return;
       }
     }
-    if (e.target.matches('[data-dev="task"]') && e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && e.target.matches('[data-dev="task"]')) {
       e.preventDefault(); sendChat(); return;
     }
     if (mod && e.key === "Enter" && e.target.matches('[data-dev="task"]')) {
